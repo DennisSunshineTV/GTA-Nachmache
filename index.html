@@ -3,22 +3,656 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>In Bearbeitung</title>
+  <title>Mallorca's: Street Life</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23ff8a3d'/%3E%3Cstop offset='1' stop-color='%23e0245e'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%230d1b2a'/%3E%3Ccircle cx='32' cy='36' r='15' fill='url(%23g)'/%3E%3Cpath d='M8 46q8-6 16 0t16 0 16 0v10H8z' fill='%2322d3ee'/%3E%3C/svg%3E">
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/three.module.js", "three/addons/": "/vendor/three/addons/" } }
+  </script>
   <style>
+    * { box-sizing: border-box; }
+
     body {
       margin: 0;
-      height: 100vh;
+      min-height: 100vh;
+      font-family: system-ui, "Segoe UI", sans-serif;
+      color: #fff;
+      background: #1a0b2e url("assets/background.png") center / cover no-repeat fixed;
+    }
+
+    .menu {
+      position: fixed;
+      top: 50%;
+      left: 32px;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 280px;
+    }
+
+    .menu button {
+      padding: 14px 20px;
+      text-align: left;
+      font: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      color: #fff;
+      cursor: pointer;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35),
+                  inset 0 1px 0 rgba(255, 255, 255, 0.15);
+      -webkit-backdrop-filter: blur(14px) saturate(140%);
+      backdrop-filter: blur(14px) saturate(140%);
+      transition: background 0.2s, transform 0.2s, border-color 0.2s;
+    }
+
+    .menu button:hover,
+    .menu button:focus-visible {
+      background: rgba(0, 0, 0, 0.65);
+      border-color: rgba(255, 255, 255, 0.4);
+      transform: translateX(6px);
+      outline: none;
+    }
+
+    .menu button:active { transform: translateX(6px) scale(0.98); }
+
+    /* ---------- Logo ---------- */
+    .logo {
+      position: fixed; top: 26px; left: 34px; margin: 0; z-index: 5;
+      font-size: clamp(30px, 3.6vw, 58px); font-weight: 900; letter-spacing: 0.01em; line-height: 1.02;
+      background: linear-gradient(90deg, #ffb347, #ff6bd6 60%, #b36bff);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.55));
+    }
+    .logo small {
+      display: block; margin-top: 10px; font-size: 0.3em; font-weight: 700; letter-spacing: 0.42em;
+      color: #fff; -webkit-text-fill-color: #fff; opacity: 0.88; text-transform: uppercase;
+    }
+    body.playing .menu, body.playing .account-bar, body.playing .logo, body.playing .notice { display: none; }
+    .menu button.locked { opacity: 0.75; }
+
+    /* ---------- Overlays (Laden, Figurenauswahl, Dialoge) ---------- */
+    #gameRoot { position: fixed; inset: 0; z-index: 50; background: #000; }
+    .screen { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; flex-direction: column; text-align: center; }
+    .screen[hidden], #gameRoot[hidden], #toast:empty { display: none; }
+    #loading { background: #1a0b2e url("assets/background.png") center / cover no-repeat; }
+    #loading::before { content: ""; position: absolute; inset: 0; background: rgba(15, 4, 35, 0.62); }
+    #loading > * { position: relative; }
+    #loading h2 { margin: 0; font-size: clamp(34px, 5vw, 72px); font-weight: 900; background: linear-gradient(90deg, #ffb347, #ff6bd6 60%, #b36bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    #loading .bar { width: min(520px, 80vw); height: 10px; margin: 28px 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
+    #loading .bar i { display: block; width: 0; height: 100%; background: linear-gradient(90deg, #ffb347, #ff5de6); transition: width 0.25s; }
+    #loading .msg { font-size: 17px; opacity: 0.92; min-height: 1.4em; }
+    #loading .tip { margin-top: 26px; max-width: min(620px, 86vw); font-size: 15px; opacity: 0.7; line-height: 1.5; }
+    #charSelect { background: rgba(10, 3, 25, 0.82); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+    #charSelect h2 { margin: 0 0 8px; font-size: 32px; }
+    #charSelect p.sub { margin: 0 0 26px; opacity: 0.8; }
+    .cards { display: flex; gap: 22px; flex-wrap: wrap; justify-content: center; padding: 0 16px; }
+    .card { width: 270px; padding: 22px 20px 20px; text-align: left; cursor: pointer; font: inherit; color: #fff; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 18px; transition: transform 0.2s, background 0.2s, border-color 0.2s; }
+    .card:hover, .card:focus-visible { transform: translateY(-6px); background: rgba(255, 110, 230, 0.2); border-color: #ff8de9; outline: none; }
+    .card .ava { height: 150px; border-radius: 12px; margin-bottom: 14px; background: linear-gradient(160deg, #2a1650, #7a2c8f 55%, #ff8a3d); display: flex; align-items: flex-end; justify-content: center; overflow: hidden; }
+    .card .ava svg { height: 140px; }
+    .card b { font-size: 23px; display: block; }
+    .card span { display: block; margin-top: 6px; font-size: 14px; opacity: 0.8; line-height: 1.45; }
+    .mbox { width: min(560px, 92vw); max-height: 86vh; overflow: auto; padding: 26px 28px; text-align: left; background: rgba(22, 12, 42, 0.95); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 16px; box-shadow: 0 20px 70px rgba(0, 0, 0, 0.6); }
+    .mbox h2 { margin: 0 0 14px; }
+    .mbox .row { display: flex; align-items: center; gap: 14px; margin: 12px 0; }
+    .mbox .row label { flex: 1; }
+    .mbox .row input[type=range] { width: 190px; }
+    .mbox .row select { padding: 7px 10px; font: inherit; color: #fff; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; color-scheme: dark; }
+    .mbox .row select option { color: #000; }
+    .mbox .btns { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+    .mbox .btns button { flex: 1; min-width: 140px; }
+    #modal { background: rgba(5, 2, 15, 0.7); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+    #toast { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); z-index: 90; padding: 12px 22px; border-radius: 12px; background: rgba(0, 0, 0, 0.8); border: 1px solid rgba(255, 255, 255, 0.25); max-width: 90vw; text-align: center; }
+    .friend { margin: 10px 0; padding: 10px 14px; border-radius: 10px; background: rgba(255, 255, 255, 0.07); }
+    .friend i { display: block; height: 8px; margin-top: 6px; border-radius: 5px; background: linear-gradient(90deg, #ff5de6, #ffb347); }
+
+    /* ---------- Account-Leiste oben rechts ---------- */
+    .account-bar {
+      position: fixed;
+      top: 20px;
+      right: 32px;
       display: flex;
       align-items: center;
-      justify-content: center;
-      font-family: system-ui, sans-serif;
-      background: #111;
-      color: #fff;
+      gap: 10px;
+      z-index: 10;
     }
-    h1 { font-size: 2rem; text-align: center; }
+
+    .btn {
+      padding: 10px 18px;
+      font: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 10px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+      -webkit-backdrop-filter: blur(14px) saturate(140%);
+      backdrop-filter: blur(14px) saturate(140%);
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .btn:hover,
+    .btn:focus-visible {
+      background: rgba(0, 0, 0, 0.65);
+      border-color: rgba(255, 255, 255, 0.4);
+      outline: none;
+    }
+
+    .btn.primary { background: rgba(124, 58, 237, 0.7); }
+    .btn.primary:hover, .btn.primary:focus-visible { background: rgba(124, 58, 237, 0.9); }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+
+    .user-chip {
+      padding: 10px 14px;
+      font-size: 0.95rem;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 10px;
+      -webkit-backdrop-filter: blur(14px);
+      backdrop-filter: blur(14px);
+    }
+
+    .rank {
+      margin-left: 6px;
+      padding: 2px 8px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.18);
+    }
+    .rank.Sysadmin { background: #dc2626; }
+    .rank.Admin { background: #d97706; }
+    .rank.Spieler { background: #2563eb; }
+
+    /* ---------- Dialoge ---------- */
+    dialog {
+      width: min(92vw, 420px);
+      padding: 28px;
+      color: #fff;
+      background: rgba(20, 10, 40, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    }
+    dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+    dialog.wide { width: min(96vw, 1100px); }
+
+    dialog h2 { margin: 0 0 18px; font-size: 1.3rem; }
+
+    .field { display: block; margin-bottom: 14px; font-size: 0.85rem; color: #cfc6e6; }
+    .field input {
+      display: block;
+      width: 100%;
+      margin-top: 6px;
+      padding: 10px 12px;
+      font: inherit;
+      font-size: 1rem;
+      color: #fff;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+    }
+    .field input:focus { outline: 2px solid #a78bfa; outline-offset: 1px; }
+    .hint { font-size: 0.75rem; color: #9d92bd; }
+
+    .error { min-height: 1.3em; margin: 0 0 12px; font-size: 0.9rem; color: #fca5a5; }
+    .actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+    /* ---------- Admin-Menü ---------- */
+    .table-wrap { max-height: 60vh; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { padding: 8px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
+    th { position: sticky; top: 0; background: #1d1033; color: #cfc6e6; font-weight: 600; }
+    td input, td select {
+      padding: 6px 8px;
+      font: inherit;
+      color: #fff;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+      color-scheme: dark;
+    }
+    td select option { color: #000; }
+    td input[type="text"] { width: 150px; }
+    .row-status { font-size: 0.8rem; color: #86efac; }
+    .row-status.err { color: #fca5a5; }
+
+    .notice {
+      position: fixed;
+      right: 32px;
+      bottom: 24px;
+      padding: 8px 16px;
+      font-size: 0.9rem;
+      background: rgba(0, 0, 0, 0.45);
+      border-radius: 10px;
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+    }
   </style>
 </head>
 <body>
-  <h1>Seite derzeit in Bearbeitung</h1>
+  <h1 class="logo">Mallorca's: Street Life<small>Open-World · Einzelspieler</small></h1>
+
+  <nav class="menu">
+    <button type="button" data-act="start">Spiel starten</button>
+    <button type="button" data-act="multi">Multiplayer</button>
+    <button type="button" data-act="load">Speicherstand laden</button>
+    <button type="button" data-act="save">Speicherstand speichern</button>
+    <button type="button" data-act="friends">Freundschaften</button>
+    <button type="button" data-act="options">Optionen</button>
+    <button type="button" data-act="quit">Spiel beenden</button>
+  </nav>
+
+  <div class="account-bar" id="accountBar"></div>
+
+  <dialog id="registerDialog">
+    <h2>Registrieren</h2>
+    <form id="registerForm" autocomplete="on">
+      <label class="field">Accountname
+        <input name="name" required minlength="3" maxlength="16" pattern="(?=.*[A-Za-z])[A-Za-z0-9]{3,16}" title="3–16 Zeichen, nur Buchstaben oder Buchstaben mit Zahlen (nur Zahlen gehen nicht)" autocomplete="username">
+        <span class="hint">3–16 Zeichen: nur Buchstaben oder Buchstaben mit Zahlen (nur Zahlen gehen nicht)</span>
+      </label>
+      <label class="field">E-Mail-Adresse
+        <input name="email" type="email" required maxlength="254" autocomplete="email">
+      </label>
+      <label class="field">Passwort
+        <input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password">
+        <span class="hint">Mindestens 8 Zeichen</span>
+      </label>
+      <p class="error" role="alert"></p>
+      <div class="actions">
+        <button type="button" class="btn" data-close>Abbrechen</button>
+        <button type="submit" class="btn primary">Account erstellen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="loginDialog">
+    <h2>Einloggen</h2>
+    <form id="loginForm" autocomplete="on">
+      <label class="field">Accountname oder E-Mail
+        <input name="name" required maxlength="254" autocomplete="username">
+      </label>
+      <label class="field">Passwort
+        <input name="password" type="password" required maxlength="128" autocomplete="current-password">
+      </label>
+      <p class="error" role="alert"></p>
+      <div class="actions">
+        <button type="button" class="btn" data-close>Abbrechen</button>
+        <button type="submit" class="btn primary">Einloggen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="adminDialog" class="wide">
+    <h2>Admin-Menü</h2>
+    <p class="hint" id="adminInfo"></p>
+    <p class="error" id="adminError" role="alert"></p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>E-Mail</th><th>Registrierungsdatum</th><th>Uhrzeit</th>
+            <th>IP-Adresse</th><th>Rang</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="adminRows"></tbody>
+      </table>
+    </div>
+    <div class="actions" style="margin-top:16px">
+      <button type="button" class="btn" data-close>Schließen</button>
+    </div>
+  </dialog>
+
+  <div class="notice">Version 1.0 · Einzelspieler</div>
+
+  <div id="gameRoot" hidden></div>
+
+  <div id="loading" class="screen" hidden>
+    <h2>Mallorca's: Street Life</h2>
+    <div class="bar"><i></i></div>
+    <div class="msg">Lade …</div>
+    <div class="tip"></div>
+  </div>
+
+  <div id="charSelect" class="screen" hidden>
+    <h2>Wähle deine Spielfigur</h2>
+    <p class="sub">Beide erleben dieselbe Geschichte – der andere steht dir als Partner zur Seite.</p>
+    <div class="cards">
+      <button type="button" class="card" data-who="jason">
+        <div class="ava"><svg viewBox="0 0 100 140"><circle cx="50" cy="26" r="15" fill="#e4b896"/><path d="M33 22c2-14 32-14 34 0-8-5-26-5-34 0z" fill="#241710"/><path d="M20 140V70c0-14 12-22 30-22s30 8 30 22v70z" fill="#1b1b20"/><rect x="38" y="86" width="24" height="54" fill="#3b4a6b"/></svg></div>
+        <b>Jason</b><span>Ehemaliger Automechaniker mit ruhiger Hand am Steuer. Schnell im Kopf, schneller auf der Straße.</span>
+      </button>
+      <button type="button" class="card" data-who="lucia">
+        <div class="ava"><svg viewBox="0 0 100 140"><path d="M30 30c0-26 40-26 40 0 0 22 6 44 6 44H24s6-22 6-44z" fill="#150c09"/><circle cx="50" cy="28" r="14" fill="#d3a07a"/><path d="M20 140V72c0-14 12-22 30-22s30 8 30 22v68z" fill="#d93d63"/><rect x="38" y="90" width="24" height="50" fill="#1d1f26"/></svg></div>
+        <b>Lucia</b><span>Kühl, gewitzt und unberechenbar. Sie plant jeden Coup – und improvisiert, wenn alles schiefgeht.</span>
+      </button>
+    </div>
+    <button type="button" id="charBack" style="margin-top:26px;padding:10px 22px;font:inherit;color:#fff;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.3);border-radius:10px;cursor:pointer">Zurück</button>
+  </div>
+
+  <div id="modal" class="screen" hidden><div class="mbox"></div></div>
+  <div id="toast"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const bar = $('accountBar');
+    let me = null;
+
+    function el(tag, props = {}, ...children) {
+      const node = Object.assign(document.createElement(tag), props);
+      node.append(...children);
+      return node;
+    }
+
+    async function api(path, method = 'GET', body) {
+      const res = await fetch(path, {
+        method,
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Fehler bei der Anfrage.');
+      return data;
+    }
+
+    // ---------- Account-Leiste ----------
+    function renderBar() {
+      bar.replaceChildren();
+      if (!me) {
+        bar.append(
+          el('button', { className: 'btn', type: 'button', textContent: 'Einloggen', onclick: () => openDialog('loginDialog') }),
+          el('button', { className: 'btn primary', type: 'button', textContent: 'Registrieren', onclick: () => openDialog('registerDialog') })
+        );
+        return;
+      }
+      bar.append(el('span', { className: 'user-chip' }, me.name, el('span', { className: 'rank ' + me.rank, textContent: me.rank })));
+      if (me.rank === 'Sysadmin' || me.rank === 'Admin') {
+        bar.append(el('button', { className: 'btn', type: 'button', textContent: 'Admin-Menü', onclick: openAdmin }));
+      }
+      bar.append(el('button', {
+        className: 'btn', type: 'button', textContent: 'Ausloggen',
+        onclick: async () => { await api('/api/logout', 'POST').catch(() => {}); me = null; renderBar(); },
+      }));
+    }
+
+    function openDialog(id) {
+      const d = $(id);
+      d.querySelector('form')?.reset();
+      const err = d.querySelector('.error');
+      if (err) err.textContent = '';
+      d.showModal();
+    }
+
+    document.querySelectorAll('[data-close]').forEach((b) =>
+      b.addEventListener('click', () => b.closest('dialog').close())
+    );
+
+    function handleAuthForm(formId, dialogId, path) {
+      $(formId).addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const form = e.currentTarget;
+        const err = form.querySelector('.error');
+        const submit = form.querySelector('[type=submit]');
+        err.textContent = '';
+        submit.disabled = true;
+        try {
+          const data = await api(path, 'POST', Object.fromEntries(new FormData(form)));
+          me = data.user;
+          renderBar();
+          $(dialogId).close();
+        } catch (ex) {
+          err.textContent = ex.message;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+    }
+    handleAuthForm('registerForm', 'registerDialog', '/api/register');
+    handleAuthForm('loginForm', 'loginDialog', '/api/login');
+
+    // ---------- Admin-Menü ----------
+    const pad = (n) => String(n).padStart(2, '0');
+    const toDateValue = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const toTimeValue = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+    async function openAdmin() {
+      const err = $('adminError');
+      err.textContent = '';
+      $('adminRows').replaceChildren();
+      $('adminDialog').showModal();
+      try {
+        const { users, canEdit, ranks } = await api('/api/admin/users');
+        $('adminInfo').textContent = canEdit
+          ? 'Als Sysadmin kannst du Registrierungsdatum, Uhrzeit, IP-Adresse und Rang ändern. Zeiten in deiner lokalen Zeitzone.'
+          : 'Du darfst die Accounts einsehen. Ändern dürfen nur Sysadmins.';
+        $('adminRows').append(...users.map((u) => adminRow(u, canEdit, ranks)));
+      } catch (ex) {
+        err.textContent = ex.message;
+      }
+    }
+
+    function adminRow(u, canEdit, ranks) {
+      const d = new Date(u.registeredAt);
+      const tr = el('tr');
+      const status = el('span', { className: 'row-status' });
+
+      if (!canEdit) {
+        tr.append(
+          el('td', { textContent: u.name }),
+          el('td', { textContent: u.email }),
+          el('td', { textContent: d.toLocaleDateString('de-DE') }),
+          el('td', { textContent: d.toLocaleTimeString('de-DE') }),
+          el('td', { textContent: u.ip }),
+          el('td', {}, el('span', { className: 'rank ' + u.rank, textContent: u.rank })),
+          el('td')
+        );
+        return tr;
+      }
+
+      const date = el('input', { type: 'date', required: true, value: toDateValue(d) });
+      const time = el('input', { type: 'time', step: 1, required: true, value: toTimeValue(d) });
+      const ip = el('input', { type: 'text', required: true, value: u.ip, maxLength: 45 });
+      const rank = el('select', { disabled: u.locked, title: u.locked ? 'Dieser Rang ist gesperrt.' : '' },
+        ...ranks.map((r) => el('option', { value: r, textContent: r, selected: r === u.rank })));
+      const save = el('button', { className: 'btn', type: 'button', textContent: 'Speichern' });
+
+      save.onclick = async () => {
+        status.className = 'row-status';
+        status.textContent = '';
+        save.disabled = true;
+        try {
+          const registeredAt = new Date(`${date.value}T${time.value}`);
+          if (Number.isNaN(registeredAt.getTime())) throw new Error('Ungültiges Datum/Uhrzeit.');
+          const { user } = await api('/api/admin/users/' + u.id, 'PATCH', {
+            rank: rank.value,
+            ip: ip.value.trim(),
+            registeredAt: registeredAt.toISOString(),
+          });
+          const nd = new Date(user.registeredAt);
+          date.value = toDateValue(nd);
+          time.value = toTimeValue(nd);
+          ip.value = user.ip;
+          rank.value = user.rank;
+          status.textContent = 'Gespeichert';
+        } catch (ex) {
+          status.className = 'row-status err';
+          status.textContent = ex.message;
+        } finally {
+          save.disabled = false;
+        }
+      };
+
+      tr.append(
+        el('td', { textContent: u.name }),
+        el('td', { textContent: u.email }),
+        el('td', {}, date), el('td', {}, time), el('td', {}, ip), el('td', {}, rank),
+        el('td', {}, save, ' ', status)
+      );
+      return tr;
+    }
+
+    // ---------- Start ----------
+
+    // ---------- Spiel starten, Menü, Optionen ----------
+    const SETTINGS_KEY = 'streetlife.settings.v1';
+    const loadSettings = () => { try { return { quality: 'high', master: 0.8, music: 0.7, sfx: 0.8, sens: 1, invertY: false, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { return { quality: 'high', master: 0.8, music: 0.7, sfx: 0.8, sens: 1, invertY: false }; } };
+    const saveSettings = (s) => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* ignorieren */ } };
+    const TIPS = [
+      'Tipp: Mit F steigst du in Fahrzeuge ein – auch in Boote, Traktoren und Flugzeuge.',
+      'Tipp: Setze mit M einen Wegpunkt auf der Karte – die Route wird in der Minikarte angezeigt.',
+      'Tipp: In Fahrzeugen wechseln Q und E den Radiosender. Alle Musik wird live im Spiel erzeugt.',
+      'Tipp: Ohne Zeugen gibt es keine Fahndung. Aber die Passanten merken sich alles.',
+      'Tipp: In deiner Wohnung kannst du speichern und gekaufte Fahrzeuge abholen.',
+      'Tipp: Mallorca, Menorca, Ibiza und Formentera sind per Boot oder Flugzeug erreichbar.',
+    ];
+    const qs = (s) => document.querySelector(s);
+    const BTN = 'padding:12px 18px;font:inherit;font-weight:700;color:#fff;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.3);border-radius:10px;cursor:pointer';
+    let toastT = 0;
+    function toast(msg, ms = 3400) { const t = qs('#toast'); t.textContent = msg; clearTimeout(toastT); toastT = setTimeout(() => (t.textContent = ''), ms); }
+    function modal(html, bind) { const m = qs('#modal'); m.querySelector('.mbox').innerHTML = html; m.hidden = false; bind && bind(m.querySelector('.mbox')); }
+    function closeModal() { qs('#modal').hidden = true; }
+    let gameInst = null;
+
+    function requireLogin() {
+      if (me) return true;
+      toast('Bitte logge dich zuerst ein (oder registriere dich), um zu spielen.');
+      openDialog('loginDialog');
+      return false;
+    }
+
+    async function fetchSave() {
+      try { const r = await api('/api/save'); return r.save ? r : null; } catch { return null; }
+    }
+
+    function chooseCharacter() { qs('#charSelect').hidden = false; }
+    document.querySelectorAll('#charSelect .card').forEach((c) => c.addEventListener('click', () => { qs('#charSelect').hidden = true; launch({ who: c.dataset.who }); }));
+    qs('#charBack').addEventListener('click', () => { qs('#charSelect').hidden = true; });
+
+    async function launch({ who, save = null }) {
+      const load = qs('#loading');
+      const setProg = (p, m) => { load.querySelector('.bar i').style.width = Math.round(p * 100) + '%'; if (m) load.querySelector('.msg').textContent = m; };
+      load.hidden = false; setProg(0.02, 'Starte …');
+      load.querySelector('.tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)];
+      const tipTimer = setInterval(() => { load.querySelector('.tip').textContent = TIPS[Math.floor(Math.random() * TIPS.length)]; }, 4500);
+      const root = qs('#gameRoot');
+      try {
+        const mod = await import('/game/main.js');
+        const s = loadSettings();
+        root.hidden = false;
+        document.body.classList.add('playing');
+        const sv = save && save.save;
+        const opts = {
+          who: sv ? sv.who : who, rank: me.rank, userName: me.name, quality: s.quality, save,
+          start: sv ? { x: sv.x, z: sv.z, heading: sv.h || 0 } : undefined,
+          onProgress: setProg,
+          onExit: () => exitGame(),
+        };
+        gameInst = await mod.startGame(root, opts);
+        setProg(1, 'Los geht’s!');
+        setTimeout(() => { load.hidden = true; }, 350);
+        gameInst.input.lock();
+      } catch (e) {
+        console.error(e);
+        root.hidden = true; root.innerHTML = '';
+        document.body.classList.remove('playing');
+        load.hidden = true;
+        toast('Das Spiel konnte nicht gestartet werden: ' + e.message, 7000);
+      } finally { clearInterval(tipTimer); }
+    }
+
+    function exitGame() {
+      try { gameInst && gameInst.stop(); gameInst && gameInst.dispose(); } catch (e) { console.warn(e); }
+      gameInst = null;
+      const root = qs('#gameRoot');
+      root.hidden = true; root.innerHTML = '';
+      document.body.classList.remove('playing');
+      // Seite neu laden: gibt WebGL und Audio sicher frei
+      setTimeout(() => location.reload(), 80);
+    }
+
+    async function startFlow() {
+      if (!requireLogin()) return;
+      const sv = await fetchSave();
+      if (!sv) { chooseCharacter(); return; }
+      const when = new Date(sv.savedAt).toLocaleString('de-DE');
+      modal('<h2>Spiel starten</h2><p>Es gibt einen Speicherstand vom <b>' + when + '</b> (' + (sv.save.who === 'lucia' ? 'Lucia' : 'Jason') + ', ' + Math.floor(sv.save.money || 0).toLocaleString('de-DE') + ' €).</p><div class="btns"><button id="m-cont">Fortsetzen</button><button id="m-new">Neues Spiel</button><button id="m-x">Abbrechen</button></div>', (b) => {
+        for (const id of ['m-cont', 'm-new', 'm-x']) b.querySelector('#' + id).style.cssText = BTN;
+        b.querySelector('#m-cont').onclick = () => { closeModal(); launch({ save: sv }); };
+        b.querySelector('#m-new').onclick = () => { closeModal(); chooseCharacter(); };
+        b.querySelector('#m-x').onclick = closeModal;
+      });
+    }
+
+    async function loadFlow() {
+      if (!requireLogin()) return;
+      const sv = await fetchSave();
+      if (!sv) { toast('Für diesen Account gibt es noch keinen Speicherstand.'); return; }
+      launch({ save: sv });
+    }
+
+    async function friendsFlow() {
+      if (!requireLogin()) return;
+      const sv = await fetchSave();
+      const NAMES = { marco: ['Marco Ibáñez', 'Schmuggler & Vermittler'], tomeu: ['Tomeu', 'Bootsmann'], rafael: ['Don Rafael Vidal', 'Pate der Insel'], elena: ['Elena', 'Pilotin'] };
+      const f = (sv && sv.save && sv.save.missions && sv.save.missions.friends) || {};
+      const rows = Object.entries(NAMES).filter(([k]) => f[k] > 0).map(([k, v]) => '<div class="friend"><b>' + v[0] + '</b> <span style="opacity:.7">· ' + v[1] + '</span><i style="width:' + f[k] + '%"></i></div>').join('');
+      modal('<h2>Freundschaften</h2>' + (rows || '<p>Du hast noch niemanden kennengelernt. Spiele die Missionen, um Kontakte zu knüpfen – sie werden hier und im Pause-Menü des Spiels angezeigt.</p>') + '<div class="btns"><button id="m-x">Schließen</button></div>', (b) => { const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = closeModal; });
+    }
+
+    function optionsFlow() {
+      const s = loadSettings();
+      const opt = ['low:Niedrig', 'medium:Mittel', 'high:Hoch', 'ultra:Ultra'].map((p) => { const [k, l] = p.split(':'); return '<option value="' + k + '"' + (s.quality === k ? ' selected' : '') + '>' + l + '</option>'; }).join('');
+      modal('<h2>Optionen</h2>' +
+        '<div class="row"><label>Grafikqualität</label><select id="o-q">' + opt + '</select></div>' +
+        '<div class="row"><label>Gesamtlautstärke</label><input id="o-m" type="range" min="0" max="1" step="0.05" value="' + s.master + '"></div>' +
+        '<div class="row"><label>Musik / Radio</label><input id="o-mu" type="range" min="0" max="1" step="0.05" value="' + s.music + '"></div>' +
+        '<div class="row"><label>Effekte</label><input id="o-s" type="range" min="0" max="1" step="0.05" value="' + s.sfx + '"></div>' +
+        '<div class="row"><label>Maus-Empfindlichkeit</label><input id="o-se" type="range" min="0.2" max="2.5" step="0.05" value="' + s.sens + '"></div>' +
+        '<div class="row"><label>Y-Achse umkehren</label><input id="o-iy" type="checkbox"' + (s.invertY ? ' checked' : '') + '></div>' +
+        '<div class="btns"><button id="m-x">Fertig</button></div>', (b) => {
+        const upd = () => { s.quality = b.querySelector('#o-q').value; s.master = +b.querySelector('#o-m').value; s.music = +b.querySelector('#o-mu').value; s.sfx = +b.querySelector('#o-s').value; s.sens = +b.querySelector('#o-se').value; s.invertY = b.querySelector('#o-iy').checked; saveSettings(s); };
+        b.querySelectorAll('input,select').forEach((e) => e.addEventListener('input', upd));
+        const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = closeModal;
+      });
+    }
+
+    function quitFlow() {
+      modal("<h2>Spiel beenden?</h2><p>Möchtest du Mallorca's: Street Life wirklich beenden?</p><div class=\"btns\"><button id=\"m-y\">Beenden</button><button id=\"m-n\">Zurück</button></div>", (b) => {
+        for (const id of ['m-y', 'm-n']) b.querySelector('#' + id).style.cssText = BTN;
+        b.querySelector('#m-n').onclick = closeModal;
+        b.querySelector('#m-y').onclick = () => {
+          window.close();
+          modal('<h2>Bis bald!</h2><p>Du kannst diesen Tab jetzt schließen. Deine gespeicherten Spielstände bleiben erhalten.</p>');
+        };
+      });
+    }
+
+    document.querySelector('.menu').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-act]');
+      if (!b) return;
+      switch (b.dataset.act) {
+        case 'start': startFlow(); break;
+        case 'multi': toast("Mallorca's: Street Life ist ein Einzelspieler-Spiel (1 Spieler). Multiplayer ist nicht verfügbar."); break;
+        case 'load': loadFlow(); break;
+        case 'save': toast('Gespeichert wird im Spiel: über das Pause-Menü (Esc) oder in deiner Wohnung. Nach jeder Mission wird automatisch gespeichert.', 5200); break;
+        case 'friends': friendsFlow(); break;
+        case 'options': optionsFlow(); break;
+        case 'quit': quitFlow(); break;
+        default: break;
+      }
+    });
+    function lockButtons() { document.querySelectorAll('.menu button[data-act="start"], .menu button[data-act="load"], .menu button[data-act="friends"]').forEach((b) => { b.classList.toggle('locked', !me); b.title = me ? '' : 'Bitte zuerst einloggen'; }); }
+    const _renderBar = renderBar;
+    renderBar = function () { _renderBar(); lockButtons(); };
+    renderBar();
+    api('/api/me').then((d) => { me = d.user; renderBar(); }).catch(() => {});
+  </script>
 </body>
 </html>

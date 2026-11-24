@@ -1,0 +1,3 @@
+# Account-Daten (Passwort-Hashes, E-Mails, IPs) gehören nicht ins Repository
+data/
+node_modules/
