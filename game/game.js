@@ -13,6 +13,10 @@ import { PoliceManager } from './ai/police.js';
 import { Markers, Pickups } from './world/interactives.js';
 import { HomeBase } from './world/homebase.js';
 import { Services } from './world/servicesrt.js';
+import { TrafficLightSystem } from './world/lightsrt.js';
+import { BusService } from './ai/buses.js';
+import { Restaurants } from './world/restort.js';
+import { AnimalManager } from './ai/animals.js';
 import { clamp, wrapPi, fmtMoney } from './util.js';
 import { WEATHER_NAMES } from './render/sky.js';
 import { WeatherFx } from './render/weatherfx.js';
@@ -52,10 +56,14 @@ export class Game {
     this.physics.addPlatforms(this.ctx.platforms);   // Stege tragen von Anfang an, auch außerhalb geladener Kacheln
     this.home = new HomeBase(this);                  // Strandhaus: Böden, Haustür, Garagentor, eigene Fahrzeuge
     this.services = new Services(this);              // Tankstellen (Zapfpistole) und Werkstätten (Tor, Reparatur)
+    this.lights = new TrafficLightSystem(this);      // Ampeln an Kreuzungen in den Orten
+    this.restaurants = new Restaurants(this);        // Burger, Pizza, Döner, Schnitzel, Pommes: Tür, Theke, Gäste
 
     this.fx = new WeatherFx(this);
     this.traffic = new TrafficManager(this);
     this.peds = new PedManager(this);
+    this.buses = new BusService(this);               // Linienbusse: Haltestellen, Fahrgäste
+    this.animals = new AnimalManager(this);          // Hunde, Katzen, Pferde, Vögel, Tauben
     this.police = new PoliceManager(this);
     this.player = null;
     this.ui = null; this.audio = null; this.radio = null; this.missions = null;
@@ -193,6 +201,11 @@ export class Game {
       this.audio?.exitVehicle(v);
       this.radio?.onExit();
       ch.camYaw = ch.h = v.h; ch.showInVehicle = false;
+      // auf einem Parkplatz in einer Bucht abgestellt?
+      for (const lot of this.ctx.parkingLots || []) {
+        if (Math.abs(lot.x - v.x) > 30 || Math.abs(lot.z - v.z) > 30) continue;
+        if (lot.bays.some((b) => Math.hypot(b.x - v.x, b.z - v.z) < 1.6)) { this.ui?.notify('Ordentlich geparkt', 'good'); break; }
+      }
     }
     ch.h = v.h;
   }
@@ -287,6 +300,7 @@ export class Game {
   onGunshot(shooter, W, loud = 75) {
     const l = W && W.id === 'sniper' ? 130 : W && W.id === 'shotgun' ? 90 : loud;
     this.peds.hearShot(shooter.x, shooter.z, W && !W.melee ? l : 12, shooter);
+    if (W && !W.melee) this.animals?.scare(shooter.x, shooter.z, l);   // Tiere schrecken auf
     if (shooter === this.player) { this.police.crime('shoot', shooter, shooter.x, shooter.z); this.stats.shots = (this.stats.shots || 0) + 1; }
   }
 
@@ -338,7 +352,7 @@ export class Game {
     else if (p.vehicle) { const d = Math.hypot(v.x - p.vehicle.x, v.z - p.vehicle.z); if (d < 40) this.audio?.crash(speed * (1 - d / 60)); }
   }
 
-  onExplosion(x, z, r, source) { if (source === this.player || source?.driver === this.player) this.police.crime('explosion', this.player, x, z, true); this.peds.hearShot(x, z, 110, source); this.missions?.onExplosion?.(x, z, r, source); }
+  onExplosion(x, z, r, source) { if (source === this.player || source?.driver === this.player) this.police.crime('explosion', this.player, x, z, true); this.peds.hearShot(x, z, 110, source); this.animals?.scare(x, z, 140); this.missions?.onExplosion?.(x, z, r, source); }
 
   onWantedChanged(w, up) { if (w > (this.stats.maxWanted || 0)) this.stats.maxWanted = w; this.ui?.wantedChanged?.(w, up); this.missions?.onWanted?.(w); }
 
@@ -388,6 +402,7 @@ export class Game {
     p.camInit = false;
     this.dying = false;
     this.ui?.hideOverlay();
+    if (home && this.home?.home) { this.home.wakeUp(); this.ui?.fadeFromBlack?.(1400); }   // im eigenen Bett aufwachen und aufstehen
     this.ui?.notify(where === 'police' ? `Strafe bezahlt: ${fmtMoney(fine)}` : home ? `Zu Hause aufgewacht – Behandlungskosten: ${fmtMoney(fine)}` : `Behandlungskosten: ${fmtMoney(fine)}`, 'warn');
     this.missions?.onRespawn?.();
   }
@@ -409,6 +424,7 @@ export class Game {
       this.weatherT = 0;                 // nach dem Aufwachen kann sich das Wetter geändert haben
       this.controlsEnabled = true;
       this.sleeping = false;
+      if (this.home?.home) this.home.wakeUp();                // aus dem Bett aufstehen
       const hh = Math.floor(this.atm.hour), mm = Math.round((this.atm.hour - hh) * 60);
       this.ui?.banner(hour < 12 ? 'Guten Morgen!' : hour < 18 ? 'Ausgeschlafen' : 'Guten Abend!', `Tag ${(this.stats.days || 0) + 1} · ${String(hh).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')} Uhr`, 3.2);
       this.ui?.notify('Gut geschlafen – Gesundheit aufgefüllt', 'good');
@@ -458,13 +474,17 @@ export class Game {
         if (c === this.player) continue;
         c.update(dt);
       }
+      this.lights.update(dt);
       this.traffic.update(dt);
       this.peds.update(dt);
+      this.buses.update(dt);
+      this.animals.update(dt);
       this.police.update(dt);
       this.enemies?.update(dt);
       this.shops?.update(dt);
       this.home.update(dt);
       this.services.update(dt);
+      this.restaurants.update(dt);
       this.combat.update(dt);
       this.markers.update(dt);
       this.pickups.update(dt);
@@ -515,6 +535,7 @@ export class Game {
   render(dt) {
     const cam = this.camera;
     if (this.freeCam) { const f = this.freeCam; cam.position.set(f.x, f.y, f.z); cam.rotation.set(f.pitch, f.yaw, 0, 'YXZ'); cam.updateMatrixWorld(); }
+    else if (this.cineCam) { const c = this.cineCam; cam.position.set(c.x, c.y, c.z); cam.lookAt(c.lx, c.ly, c.lz); cam.updateMatrixWorld(); }   // Filmkamera (Aufwachen)
     this.atm.update(dt, cam.position, cam);
     this.sea.update(dt, cam);
     // Pools in der Nähe: Loch im Gelände über dem Becken (die nächsten zuerst)
@@ -528,6 +549,7 @@ export class Game {
     }
     this.under?.update(dt, cam);
     this.mats.setNight(this.atm.night, this.atm.w.rain);
+    if (this.mats.foliageU) this.mats.foliageU.uTime.value = this.time;   // Wind in Bäumen und Büschen
     this.props.setNight(this.atm.night);
     this.engine.renderer.toneMappingExposure = this.atm.exposure;
     this.chunks.update(this.player.vehicle ? this.player.vehicle : this.player);
@@ -559,12 +581,15 @@ export class Game {
     if (!d) return;
     const p = this.player;
     this.money = d.money ?? this.money;
-    p.weapons = d.weapons || p.weapons; p.cur = d.cur || 'pistol'; p._applyWeaponModel();
+    p.weapons = d.weapons || p.weapons;
+    p.cur = d.cur && (d.cur === 'fists' || p.weapons[d.cur]) ? d.cur : p.weapons.pistol ? 'pistol' : 'fists';
+    p._applyWeaponModel();
     p.hp = d.hp ?? p.hp; p.armor = d.armor ?? 0;
     this.atm.hour = d.hour ?? this.atm.hour;
     if (d.weather) this.atm.setWeather(d.weather, true);
     this.stats = { ...this.stats, ...(d.stats || {}) };
     this.owned = d.owned || this.owned;
+    this.home?._syncSafe?.();
     this.friends = d.friends || this.friends;
     this.missions?.restore?.(d.missions);
     this.teleport(d.x, d.z);

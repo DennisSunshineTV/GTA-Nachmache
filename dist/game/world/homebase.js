@@ -28,6 +28,11 @@ export class HomeBase {
       plat(mb, 0, -hd - PO.d / 2, PO.w, PO.d, this.yM),
       plat(mb, 0, -hd - PO.d - PO.step / 2, PO.w, PO.step, this.yM - 0.2),
     ];
+    // Stufen zwischen Terrasse und Glasfront (begehbar)
+    if (mb.stairs) {
+      const dy = (mb.deckY ?? this.yM) + 0.074;
+      for (let j = 1; j < mb.stairs.n; j++) { const d = (mb.stairs.n - j) * 0.3; this.platforms.push(plat(mb, -0.225, 6.55 + d / 2, 8.25, d, dy + j * mb.stairs.rise)); }
+    }
     game.physics.addPlatforms(this.platforms);
 
     this.group = new THREE.Group();
@@ -36,9 +41,12 @@ export class HomeBase {
     this._buildHouseDoor(mb);
     // Warmes Licht innen (immer in der Szene, damit sich die Lichtanzahl der Shader nie ändert; aus = Stärke 0)
     this.lights = [
-      { l: new THREE.PointLight(0xffd6a0, 0, 15, 1.4), b: mb, lx: 0, lz: 0.5, y: this.yM + 3.2, on: 26 },
+      { l: new THREE.PointLight(0xffd6a0, 0, 16, 1.4), b: mb, lx: 0, lz: 0.5, y: this.yM + 3.2, on: 36 },
       { l: new THREE.PointLight(0xfff2dc, 0, 11, 1.4), b: gb, lx: 0, lz: 0, y: this.yG + 2.8, on: 16 },
+      // Feuerschale auf der Terrasse (flackert)
+      { l: new THREE.PointLight(0xff8a38, 0, 11, 1.5), b: mb, lx: 5.4, lz: 11.2 + (mb.furnZ || 0), y: (mb.deckY ?? this.yM) + 1.25, on: 16, fire: true },
     ];
+    this.fireT = 0;
     for (const L of this.lights) { const q = this.toWorld(L.b, L.lx, L.lz); L.l.position.set(q.x, L.y, q.z); L.l.castShadow = false; this.group.add(L.l); }
   }
 
@@ -51,8 +59,8 @@ export class HomeBase {
     this.gRoot = new THREE.Group();
     this.gRoot.position.set(gb.x, this.yG, gb.z);
     this.gRoot.rotation.y = gb.rot;
-    const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.3, 0.31, 0.33), roughness: 0.55, metalness: 0.35 });
-    const groove = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.16, 0.16, 0.18), roughness: 0.7, metalness: 0.3 });
+    const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.14, 0.14, 0.155), roughness: 0.45, metalness: 0.5 });
+    const groove = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.055, 0.055, 0.065), roughness: 0.6, metalness: 0.4 });
     this.slatH = D.h / SLAT_N;
     const geo = new THREE.BoxGeometry(D.w, this.slatH - 0.012, 0.05);
     const gGeo = new THREE.BoxGeometry(D.w - 0.04, 0.03, 0.02);
@@ -113,15 +121,16 @@ export class HomeBase {
     this.dPivot = new THREE.Group();
     this.dRoot.add(this.dPivot);
     const geo = new THREE.BoxGeometry(D.w, D.h, 0.07); geo.translate(D.w / 2, D.h / 2, 0);
-    const leaf = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: new THREE.Color(0.38, 0.25, 0.15), roughness: 0.7 }));
+    const leaf = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: new THREE.Color(0.1, 0.1, 0.11), roughness: 0.45, metalness: 0.35 }));
     leaf.castShadow = true; leaf.receiveShadow = true;
     this.dPivot.add(leaf);
-    const panel = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.3, 0.19, 0.11), roughness: 0.75 });
+    const panel = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.3, 0.17, 0.09), roughness: 0.55 });
     for (const [py, ph] of [[0.55, 0.7], [1.55, 0.9]]) for (const sz of [-1, 1]) {
       const p = new THREE.Mesh(new THREE.BoxGeometry(D.w - 0.3, ph, 0.02), panel); p.position.set(D.w / 2, py, sz * 0.042); this.dPivot.add(p);
     }
-    const knobM = new THREE.MeshStandardMaterial({ color: 0xc9a85a, roughness: 0.3, metalness: 0.9 });
-    for (const sz of [-1, 1]) { const k = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.05), knobM); k.position.set(D.w - 0.16, 1.0, sz * 0.07); this.dPivot.add(k); }
+    // senkrechte, leuchtende Griffleiste
+    const knobM = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 1.35, 0.55) });
+    for (const sz of [-1, 1]) { const k = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.85, 0.035), knobM); k.position.set(D.w - 0.14, 1.15, sz * 0.075); this.dPivot.add(k); }
     this.group.add(this.dRoot);
     const q = this.toWorld(mb, D.x, -hd + 0.15);
     this.dCenter = q;
@@ -207,7 +216,19 @@ export class HomeBase {
 
     // Licht: nachts und bei Annäherung
     const lightOn = near ? 1 : 0;
-    for (const L of this.lights) L.l.intensity = L.on * lightOn * (0.35 + 0.65 * (g.atm?.night ?? 0));
+    for (const L of this.lights) L.l.intensity = L.on * lightOn * (0.35 + 0.65 * (g.atm?.night ?? 0)) * (L.fire ? 0.85 + 0.15 * Math.sin(g.time * 13) * Math.sin(g.time * 7.3) : 1);
+
+    // Flammen in der Feuerschale
+    const fl = this.lights[2];
+    if (near && g.effects.fireP) {
+      this.fireT = Math.min(0.2, this.fireT + dt);
+      const fx = fl.l.position.x, fz = fl.l.position.z, fy = fl.y - 0.72;
+      while (this.fireT > 0.04) {
+        this.fireT -= 0.04;
+        const a = Math.random() * 6.28, r = Math.random() * 0.36;
+        g.effects.fireP.spawn(fx + Math.cos(a) * r, fy, fz + Math.sin(a) * r, (Math.random() - 0.5) * 0.15, 0.55 + Math.random() * 0.7, (Math.random() - 0.5) * 0.15, 0.35 + Math.random() * 0.35, 0.34, 0.05, [2.6, 1.15, 0.22, 0.75], [1.1, 0.2, 0.02, 0], -0.5, 0.4);
+      }
+    }
 
     // Parken: Fahrzeug langsam in der Garage → gehört dem Spieler
     const v = p.vehicle || p.lastVehicle;

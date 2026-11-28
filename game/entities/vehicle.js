@@ -267,7 +267,9 @@ export class Vehicle {
   // Geführte Fahrt: Ort und Kurs kommen von der Spur, Höhe und Neigung vom Boden
   _guided(dt) {
     const o = driveRail(this.game.ctx.net, this, dt);
-    const turn = wrapPi(Math.atan2(o.dx, o.dz) - this.h) * Math.min(1, dt * 12);
+    // Kurs = echte Fahrtrichtung: beim Spurwechsel zeigt die Nase schräg in die neue Spur (nie seitwärts rutschen)
+    const r = this.rail, sp = r.speed, slip = Math.atan2(r.latV || 0, Math.max(0.5, Math.abs(sp)));
+    const turn = wrapPi(Math.atan2(o.dx, o.dz) - (sp >= 0 ? 1 : -1) * slip - this.h) * Math.min(1, dt * 12);
     this.h += turn;
     this.x = o.x; this.z = o.z;
     this.speed = this.rail.speed;

@@ -19,6 +19,7 @@ export const HOUSE = {
   bed: { x: -3.9, z: -3.2 },
   marker: { x: -1.8, z: -3.2 },                          // „Speichern & Garage“ neben dem Bett
   spawn: { x: 0.6, z: 1.2 },                             // Aufwachen/Start: Wohnzimmer, Blick aufs Meer
+  safe: { x: -1.95, z: -5.9, w: 0.62, d: 0.52, h: 0.98 },  // Tresor an der Rückwand neben dem Kleiderschrank (Tür zum Raum)
 };
 export const GARAGE_IN = {
   door: { w: 6.2, h: 2.7 },
@@ -32,6 +33,7 @@ const MAIN_COLLIDERS = (() => {
     [-g - side, -hd + 0.15, side, 0.15], [g + side, -hd + 0.15, side, 0.15],
     // Möbel
     [HOUSE.bed.x, HOUSE.bed.z, 1.15, 0.95, 0.65], [-3.6, -5.85, 1.1, 0.32, 2.3], [-4.75, -4.65, 0.27, 0.27, 0.6],
+    [HOUSE.safe.x, HOUSE.safe.z, HOUSE.safe.w / 2, HOUSE.safe.d / 2, HOUSE.safe.h],
     [4.8, -3.35, 0.4, 1.85, 0.95], [4.8, -5.75, 0.42, 0.42, 2.0], [2.0, -0.4, 0.8, 0.45, 0.78],
     [-1.6, 2.4, 1.5, 0.48, 0.85], [-3.55, 3.45, 0.48, 0.6, 0.85], [-1.6, 3.95, 0.65, 0.35, 0.42],
   ];
@@ -207,6 +209,7 @@ export function generateBeachHouse(ctx) {
   const entry = L(HOUSE.door.x, -MAIN.d / 2 - 1.2);
   const inside = L(HOUSE.marker.x, HOUSE.marker.z);
   const bed = L(HOUSE.bed.x, HOUSE.bed.z);    // Bett: mit F schlafen (Aufwachzeit wählen)
+  const safe = L(HOUSE.safe.x, HOUSE.safe.z + HOUSE.safe.d / 2 + 0.75);   // vor dem Tresor stehen: mit F öffnen
   const fwd = L(0, -1);                       // Richtung "landeinwärts" (lokal −z) als Weltvektor
   const dirX = fwd[0] - x, dirZ = fwd[1] - z;
   const spawn = L(GARAGE.cx, GATE.z - 0.8);
@@ -216,6 +219,7 @@ export function generateBeachHouse(ctx) {
     entry: { x: entry[0], z: entry[1] },
     inside: { x: inside[0], z: inside[1] },
     bed: { x: bed[0], z: bed[1] },
+    safe: { x: safe[0], z: safe[1] },
     garage: { x: L(GARAGE.cx, GARAGE.cz)[0], z: L(GARAGE.cx, GARAGE.cz)[1] },
     deck: { rects: deckRects, forecourt: 3, drive: drive ? drive.id : null, driveX: GATE.x },
     spawn: { x: spawn[0], z: spawn[1], h: Math.atan2(dirX, dirZ) },

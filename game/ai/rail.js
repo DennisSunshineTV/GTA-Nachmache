@@ -85,7 +85,12 @@ export function driveRail(net, v, dt) {
   const r = v.rail, T = v.T;
   r.speed += clamp(r.want - r.speed, -T.brake * 0.8 * dt, T.accel * 0.7 * dt);
   if (r.want >= 0) r.speed = Math.max(0, r.speed);   // ein negatives Wunschtempo setzt zurück
-  if (!r.curve) r.off += clamp(r.offTarget - r.off, -3 * dt, 3 * dt) * Math.min(1, Math.abs(r.speed) / 2);
+  // Spurwechsel: quer höchstens 30 % des Vorwärtstempos (≈ 17°) – sonst rutscht der Wagen seitwärts über die Straße
+  r.latV = 0;
+  if (!r.curve && dt > 0) {
+    const rate = Math.min(3, Math.abs(r.speed) * 0.3), d = clamp(r.offTarget - r.off, -rate * dt, rate * dt);
+    r.off += d; r.latV = d / dt;
+  }
   let dist = r.speed * dt;
   if (dist < 0 && !r.curve) r.s = Math.max(0, r.s + dist);
   while (dist > 1e-6) {

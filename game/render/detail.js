@@ -89,7 +89,7 @@ export class DetailBuilder {
     const hAt = (x, z) => this.cm.heightAt(x, z);
     const B = { plaster: new MeshBuilder(), old: new MeshBuilder(), hotel: new MeshBuilder(), glass: new MeshBuilder(), shop: new MeshBuilder(), metal: new MeshBuilder(), club: new MeshBuilder(), finca: new MeshBuilder(), roof: new MeshBuilder(), flat: new MeshBuilder(), sign: new MeshBuilder(),
       hPlaster: new MeshBuilder(), hRoof: new MeshBuilder(), hWood: new MeshBuilder(), hStone: new MeshBuilder(), hHedge: new MeshBuilder(), hGlass: new MeshBuilder(), hGlassLit: new MeshBuilder(), hFence: new MeshBuilder(),
-      led: new MeshBuilder(), glow: new MeshBuilder(), bglass: new MeshBuilder(), hDeck: new MeshBuilder(), leaf: new MeshBuilder() };   // Strandhaus
+      led: new MeshBuilder(), glow: new MeshBuilder(), bglass: new MeshBuilder(), hDeck: new MeshBuilder(), leaf: new MeshBuilder(), mark: new MeshBuilder() };   // Strandhaus
     const roadMB = new MeshBuilder(), poolMB = new MeshBuilder(), rimMB = new MeshBuilder(), basinMB = new MeshBuilder();
     B.road = roadMB;      // Einfahrten und Gartenwege der Häuser liegen im Straßen-Mesh (Pflaster)
     const colliders = [], platforms = [];
@@ -140,6 +140,30 @@ export class DetailBuilder {
     buildNodes(ctx, nodes, roadMB);
     // Strandhaus: Terrasse, Stege und Vorplatz als durchgehende Dielenfläche (in der Kachel des Hauses)
     if (ctx.home && ctx.home.deck && ckey(Math.floor(ctx.home.x / CHUNK), Math.floor(ctx.home.z / CHUNK)) === key) buildHomeDeck(ctx, hAt, B, colliders);
+    // Parkplätze: weiße Buchtmarkierungen auf der Asphaltfläche und das blaue P-Schild an der Einfahrt
+    for (const lot of ctx.parkingLots || []) {
+      if (ckey(Math.floor(lot.x / CHUNK), Math.floor(lot.z / CHUNK)) !== key) continue;
+      const c = Math.cos(lot.rot), s = Math.sin(lot.rot), y = lot.y + 0.025;
+      const W = (lx, lz) => [lot.x + c * lx + s * lz, lot.z - s * lx + c * lz];
+      for (const [x0, z0, x1, z1] of lot.lines) {
+        const dx = x1 - x0, dz = z1 - z0, l = Math.hypot(dx, dz) || 1, nx = (-dz / l) * 0.06, nz = (dx / l) * 0.06;
+        const a = W(x0 + nx, z0 + nz), b = W(x1 + nx, z1 + nz), cc = W(x1 - nx, z1 - nz), d = W(x0 - nx, z0 - nz);
+        B.mark.quadUp([a[0], y, a[1]], [b[0], y, b[1]], [cc[0], y, cc[1]], [d[0], y, d[1]], 0.93, 0.93, 0.9);
+      }
+      const sg = lot.sign, gy = hAt(sg.x, sg.z);
+      B.flat.cylinder(sg.x, gy, sg.z, 0.05, 0.05, 2.7, 8, 0.6, 0.62, 0.64);
+      const off = (lx, lz) => [sg.x + c * lx + s * lz, sg.z - s * lx + c * lz];
+      const [bx, bz] = off(0, -0.06);
+      B.flat.box(bx, gy + 2.05, bz, 0.66, 0.66, 0.05, lot.rot, 0.95, 0.95, 0.95);
+      const [px, pz] = off(0, -0.09);
+      B.flat.box(px, gy + 2.08, pz, 0.6, 0.6, 0.02, lot.rot, 0.05, 0.3, 0.78);
+      // Buchstabe P (weiß): Stamm, Bogen oben, rechte Kante des Bogens
+      for (const [lx, ly, w, h] of [[-0.11, 2.15, 0.08, 0.46], [0.0, 2.53, 0.25, 0.07], [0.0, 2.33, 0.25, 0.07], [0.1, 2.36, 0.07, 0.22]]) {
+        const [qx, qz] = off(lx, -0.11);
+        B.flat.box(qx, gy + ly, qz, w, h, 0.01, lot.rot, 0.97, 0.97, 0.97);
+      }
+      colliders.push({ k: 'c', x: sg.x, z: sg.z, r: 0.1, y0: gy - 1, y1: gy + 2.8, prop: 'sign' });
+    }
     yield;
 
     // --- Pools: man kann darin schwimmen. Das Gelände hat an der Wasserfläche ein Loch (Shader, materials.setPools),
@@ -265,6 +289,7 @@ export class DetailBuilder {
     add(B.hDeck, mats.deckWood, { cast: false }); add(B.led, mats.led, { cast: false }); add(B.leaf, mats.leaf);
     add(B.glow, mats.glow, { cast: false, order: 4 }); add(B.bglass, mats.homeGlass, { cast: false, order: 5 });
     add(poolMB, mats.pool, { cast: false, order: 3 });
+    add(B.mark, mats.marking, { cast: false, order: 2 });   // Fahrbahnmarkierungen (Parkbuchten) über dem Belag
     this.cm.scene.add(group);
 
     const self = this;

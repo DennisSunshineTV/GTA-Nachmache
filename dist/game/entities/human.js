@@ -315,12 +315,29 @@ export class Human {
 
     if (st.driving) {
       B.hips.position.y = 0.62;
-      B.legL.rotation.x = -1.45; B.legR.rotation.x = -1.45; B.shinL.rotation.x = 1.5; B.shinR.rotation.x = 1.5;
-      const w = st.wheel || 0;
-      B.armL.rotation.x = -1.05; B.armR.rotation.x = -1.05; B.foreL.rotation.x = -0.4; B.foreR.rotation.x = -0.4;
-      B.armL.rotation.y = -w * 0.5; B.armR.rotation.y = -w * 0.5;
-      B.spine.rotation.x = -0.05;
-      B.head.rotation.y = clamp(w * 0.4, -0.5, 0.5);
+      const rec = st.recline || 0, w = st.wheel || 0;
+      if (st.carSeat) {
+        // Im Auto: Beine fast waagerecht nach vorn (sie liegen unter der Gürtellinie), Rücken an der geneigten Lehne
+        B.legL.rotation.x = -1.52; B.legR.rotation.x = -1.52; B.shinL.rotation.x = 0.28; B.shinR.rotation.x = 0.28;
+        B.legL.rotation.z = -0.05; B.legR.rotation.z = 0.05;
+      } else {
+        B.legL.rotation.x = -1.45; B.legR.rotation.x = -1.45; B.shinL.rotation.x = 1.5; B.shinR.rotation.x = 1.5;
+      }
+      if (st.passenger) {
+        // Beifahrer: Hände im Schoß, schaut sich ab und zu um
+        B.armL.rotation.x = -0.45 + rec * 0.5; B.armR.rotation.x = -0.45 + rec * 0.5; B.foreL.rotation.x = -1.05; B.foreR.rotation.x = -1.05;
+        B.armL.rotation.z = -0.12; B.armR.rotation.z = 0.12;
+        B.head.rotation.y = Math.sin(this.stateT * 0.35) * 0.35;
+      } else {
+        B.armL.rotation.x = -1.05 + rec * 0.6; B.armR.rotation.x = -1.05 + rec * 0.6; B.foreL.rotation.x = -0.4; B.foreR.rotation.x = -0.4;
+        B.armL.rotation.y = -w * 0.5; B.armR.rotation.y = -w * 0.5;
+        B.head.rotation.y = clamp(w * 0.4, -0.5, 0.5);
+      }
+      B.spine.rotation.x = -0.05 - rec;
+      B.head.rotation.x = rec * 0.85;      // Blick bleibt nach vorn, auch wenn die Lehne flach ist
+      // Waffe nur in der Hand, wenn aus dem Fahrzeug gezielt wird
+      this.hand.visible = !!st.aim;
+      if (st.aim) { B.armR.rotation.set(-(Math.PI / 2 + (st.aimPitch || 0)) + 0.04 + rec, 0.12, 0.05); B.foreR.rotation.set(-0.05, 0, 0); }
       return;
     }
     if (st.lie) {

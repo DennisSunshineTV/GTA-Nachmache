@@ -298,8 +298,8 @@ function carBody(p, paint) {
   const lower = stationsFrom(15, -hl, hl, (t) => {
     // Höhenprofile: Heck bis Gürtel, Haube fällt zur Front ab
     const yt = t < 0.15 ? lerp(p.trunk - 0.05, p.trunk, sm(0, 0.15, t)) : t < 0.55 ? lerp(p.trunk, p.belt, sm(0.15, 0.55, t)) : lerp(p.belt, p.hood, sm(0.55, 0.85, t)) - (t > 0.92 ? (t - 0.92) * 1.1 : 0);
-    const w = hw * (t < 0.04 ? 0.9 + t * 2.5 : t > 0.94 ? 1 - (t - 0.94) * 2.4 : 1);
-    const yb = p.bottom + (t < 0.04 || t > 0.96 ? 0.1 : 0);
+    const w = hw * (t < 0.04 ? 0.9 + t * 2.5 : t > 0.94 ? 1 - (t - 0.94) * 2.4 : 1) * (p.noseTaper ? lerp(1, p.noseTaper, sm(0.66, 1, t)) : 1);
+    const yb = p.bottom + (t < 0.04 || t > 0.96 ? 0.1 : 0) + (p.noseLift ? p.noseLift * sm(0.7, 0.95, t) : 0);
     const bh = yt - yb;
     return [[0, yb, 0], [w * 0.92, yb, 0], [w, yb + bh * 0.28, 0], [w * 0.985, yb + bh * 0.72, 0], [w * 0.9, yt, 0], [w * 0.84, yt + 0.004, 0], [0, yt + 0.006, 0]];
   });
@@ -357,7 +357,8 @@ function carBody(p, paint) {
     tiltBox(cabin, 0, Math.min(lay.hips, yB - 0.2), benchZ, hb * 1.7, benchY - Math.min(lay.hips, yB - 0.2), 0.12, 0.18, SEAT_COL);
     for (const sx of [1, -1]) tiltBox(cabin, sx * hb * 0.5, benchY + 0.02, benchZ - 0.05, 0.25, 0.17, 0.1, 0.18, SEAT_COL);
   }
-  // Stoßfänger, Grill, Lichter
+  // Stoßfänger, Grill, Lichter (p.bare: eigene Front/Heck, z. B. Kabinenroller)
+  if (p.bare) return { body, glass, head, tail, cabin, lay };
   const bf = p.bottom + 0.02;
   body.box(0, bf, hl - 0.12, p.W * 0.97, 0.22, 0.26, 0, ...dark, { shade: false });
   body.box(0, bf, -hl + 0.12, p.W * 0.97, 0.22, 0.26, 0, ...dark, { shade: false });
@@ -450,23 +451,127 @@ function boxTruck(paint) {
   return { parts: { body, glass, head, tail }, wheels, hw: 1.3, hl: 3.8, h: 3.7, seat: { x: -0.5, y: 1.55, z: 3.35 }, extras: {}, wheelR: 0.5, rims: 'steel' };
 }
 
+// Stadtbus (Niederflur): unten lackiert, Fensterband aus klarem Glas mit Säulen, Türen rechts (lokal −x), innen Sitzreihen
+// links und rechts vom Gang, gelbe Haltestangen, Fahrerplatz vorn links. Fahrgäste sitzen sichtbar auf den Plätzen (seats).
+export const BUS_DOORS = [{ z: 4.25, w: 1.2 }, { z: 0.0, w: 1.3 }];
 function bus(paint) {
-  const body = new MeshBuilder(), glass = new MeshBuilder(), head = new MeshBuilder(), tail = new MeshBuilder();
-  const L = 11.5, W = 2.55, H = 3.2;
-  body.box(0, 0.35, 0, W, H - 0.35, L, 0, 0.95, 0.95, 0.95);
-  body.box(0, 0.35, 0, W + 0.01, 1.0, L + 0.01, 0, ...paint, { noTop: true });
-  body.box(0, H - 0.5, 0, W + 0.01, 0.5, L + 0.01, 0, ...paint, { noBottom: true });
+  const body = new MeshBuilder(), glass = new MeshBuilder(), head = new MeshBuilder(), tail = new MeshBuilder(), cabin = new MeshBuilder();
+  const L = 11.5, W = 2.55, H = 3.2, hl = L / 2, hw = W / 2, T = 0.07;
+  const yF = 0.38, yW0 = 1.2, yW1 = 2.72;                 // Boden, Fensterband unten/oben
+  const white = [0.95, 0.95, 0.95], dark = [0.07, 0.07, 0.08], grey = [0.62, 0.64, 0.66];
+  const fabric = [0.14, 0.22, 0.48], fabric2 = [0.1, 0.16, 0.36], rail = [0.95, 0.75, 0.1];
+  // Boden und Unterbau
+  body.box(0, 0.26, 0, W - 0.04, yF - 0.26, L - 0.1, 0, ...dark);
+  cabin.box(0, yF, 0, W - 2 * T - 0.02, 0.02, L - 0.3, 0, 0.3, 0.31, 0.33);
+  // Seitenwände: unten lackiert (Türöffnungen rechts), Fensterband mit Säulen, oben Dachkante
+  const doorAt = (z) => BUS_DOORS.find((d) => Math.abs(z - d.z) < d.w / 2 + 0.05);
   for (const sx of [-1, 1]) {
-    glass.quadAuto([sx * (W / 2 + 0.006), 1.45, L / 2 - 0.4].map((v, i) => v), [sx * (W / 2 + 0.006), 1.45, -L / 2 + 0.4], [sx * (W / 2 + 0.006), H - 0.55, -L / 2 + 0.4], [sx * (W / 2 + 0.006), H - 0.55, L / 2 - 0.4], 1, 1, 1);
+    const x = sx * (hw - T / 2);
+    // untere Wand in Abschnitten (rechts mit Lücken für die Türen)
+    const cuts = sx < 0 ? BUS_DOORS.map((d) => [d.z - d.w / 2, d.z + d.w / 2]).sort((a, b) => a[0] - b[0]) : [];
+    let z0 = -hl + 0.1;
+    for (const [c0, c1] of [...cuts, [hl - 0.1, hl - 0.1]]) {
+      if (c0 - z0 > 0.05) { body.box(x, 0.3, (z0 + c0) / 2, T, yW0 - 0.3, c0 - z0, 0, ...paint); cabin.box(x - sx * 0.04, yF, (z0 + c0) / 2, 0.02, yW0 - yF, c0 - z0, 0, ...grey); }
+      z0 = c1;
+    }
+    body.box(x, yW1, 0, T, H - yW1, L - 0.2, 0, ...paint);
+    cabin.box(x - sx * 0.04, yW1, 0, 0.02, H - 0.2 - yW1, L - 0.3, 0, ...grey);
+    // Fenstersäulen und Glas
+    for (let z = -hl + 0.15; z <= hl - 0.6; z += 1.42) {
+      if (sx < 0 && doorAt(z)) continue;
+      body.box(x, yW0, z, T + 0.01, yW1 - yW0, 0.1, 0, ...dark);
+    }
+    const gx = sx * (hw + 0.004);
+    glass.quadAuto([gx, yW0, hl - 0.9], [gx, yW0, -hl + 0.15], [gx, yW1, -hl + 0.15], [gx, yW1, hl - 0.9], 1, 1, 1);
   }
-  glass.quadAuto([-1.1, 1.5, L / 2 + 0.006], [1.1, 1.5, L / 2 + 0.006], [1.1, H - 0.5, L / 2 + 0.006], [-1.1, H - 0.5, L / 2 + 0.006], 1, 1, 1);
-  glass.quadAuto([1.1, 1.5, -L / 2 - 0.006], [-1.1, 1.5, -L / 2 - 0.006], [-1.1, H - 0.8, -L / 2 - 0.006], [1.1, H - 0.8, -L / 2 - 0.006], 1, 1, 1);
-  head.box(-0.85, 0.85, L / 2, 0.4, 0.2, 0.05, 0, 1, 0.95, 0.85, { shade: false }); head.box(0.85, 0.85, L / 2, 0.4, 0.2, 0.05, 0, 1, 0.95, 0.85, { shade: false });
-  tail.box(-1.0, 0.9, -L / 2, 0.3, 0.4, 0.05, 0, 0.9, 0.05, 0.05, { shade: false }); tail.box(1.0, 0.9, -L / 2, 0.3, 0.4, 0.05, 0, 0.9, 0.05, 0.05, { shade: false });
-  body.box(0, H, 0, 1.2, 0.35, 2.2, 0, 0.9, 0.9, 0.92); // Klimaanlage
+  // Türen: Glasflügel mit dunklem Rahmen, bis zum Boden
+  for (const d of BUS_DOORS) {
+    const x = -hw + 0.02;
+    for (const sz of [-1, 1]) {
+      const zc = d.z + sz * d.w / 4;
+      body.box(x, 0.3, zc, 0.05, 0.06, d.w / 2 - 0.04, 0, ...dark);
+      body.box(x, yW1 - 0.05, zc, 0.05, 0.06, d.w / 2 - 0.04, 0, ...dark);
+      body.box(x, 0.3, zc - sz * (d.w / 4 - 0.03), 0.05, yW1 - 0.3, 0.05, 0, ...dark);
+    }
+    glass.quadAuto([x - 0.03, 0.36, d.z - d.w / 2], [x - 0.03, 0.36, d.z + d.w / 2], [x - 0.03, yW1 - 0.05, d.z + d.w / 2], [x - 0.03, yW1 - 0.05, d.z - d.w / 2], 1, 1, 1);
+  }
+  // Dach (innen Himmel mit Lichtleisten) und Klimaanlage
+  body.box(0, H - 0.06, 0, W, 0.08, L, 0, ...white);
+  cabin.box(0, H - 0.3, 0, W - 0.2, 0.02, L - 0.4, 0, 0.82, 0.82, 0.8);
+  for (const sx of [-0.55, 0.55]) head.box(sx, H - 0.33, 0, 0.12, 0.02, L - 1.2, 0, 1, 0.98, 0.9, { shade: false });
+  body.box(0, H + 0.02, -0.5, 1.3, 0.3, 2.4, 0, 0.9, 0.9, 0.92);
+  // Front: Schürze mit Scheinwerfern, große Frontscheibe, Zielanzeige
+  body.box(0, 0.3, hl - 0.05, W - 0.04, 0.75, 0.1, 0, ...paint);
+  glass.quadAuto([-hw + 0.08, 1.05, hl + 0.004], [hw - 0.08, 1.05, hl + 0.004], [hw - 0.08, H - 0.42, hl + 0.004], [-hw + 0.08, H - 0.42, hl + 0.004], 1, 1, 1);
+  body.box(0, H - 0.42, hl - 0.05, W - 0.04, 0.42, 0.1, 0, ...dark);
+  head.box(0, H - 0.36, hl + 0.01, W * 0.7, 0.24, 0.02, 0, 1, 0.62, 0.08, { shade: false });
+  for (const sx of [-1, 1]) {
+    head.box(sx * 0.92, 0.55, hl + 0.02, 0.42, 0.16, 0.04, 0, 1, 0.95, 0.85, { shade: false });
+    body.box(sx * 0.92, 0.5, hl + 0.005, 0.5, 0.26, 0.04, 0, ...dark);
+    body.box(sx * (hw + 0.12), 2.3, hl - 0.25, 0.08, 0.35, 0.12, 0, ...dark);     // Spiegel
+  }
+  // Heck: lackiert, Heckscheibe, Motorgitter, Rückleuchten
+  body.box(0, 0.3, -hl + 0.05, W - 0.04, 1.15, 0.1, 0, ...paint);
+  glass.quadAuto([hw - 0.12, 1.5, -hl - 0.004], [-hw + 0.12, 1.5, -hl - 0.004], [-hw + 0.12, 2.65, -hl - 0.004], [hw - 0.12, 2.65, -hl - 0.004], 1, 1, 1);
+  body.box(0, 1.45, -hl + 0.05, W - 0.04, 0.05, 0.1, 0, ...paint);
+  body.box(0, 2.65, -hl + 0.05, W - 0.04, H - 2.65, 0.1, 0, ...paint);
+  for (let k = 0; k < 6; k++) body.box(0, 0.5 + k * 0.12, -hl - 0.01, 1.4, 0.04, 0.02, 0, ...dark);
+  for (const sx of [-1, 1]) { tail.box(sx * 1.02, 0.6, -hl - 0.01, 0.26, 0.5, 0.04, 0, 0.9, 0.05, 0.05, { shade: false }); body.box(sx * (hw - 0.06), 1.5, -hl + 0.05, 0.12, 1.15, 0.1, 0, ...paint); }
+  // Fahrerplatz vorn links: Armaturen, Lenkrad, Trennwand
+  cabin.box(0.6, yF, hl - 0.45, 1.2, 0.75, 0.5, 0, ...dark);
+  steeringWheel(cabin, [0.72, yF + 0.82, hl - 0.85], 0.75, 0.22, [0.05, 0.05, 0.055]);
+  cabin.box(0.72, yF, hl - 1.3, 0.5, 0.48, 0.5, 0, ...fabric2);
+  cabin.box(0.72, yF + 0.48, hl - 1.55, 0.5, 0.7, 0.08, 0, ...fabric2);
+  cabin.box(0.25, yF, hl - 1.85, 0.05, 1.3, 0.9, 0, 0.75, 0.78, 0.8);
+  // Sitzreihen: links Zweierbänke, rechts Zweierbänke (nicht an den Türen); Haltestangen am Gang
+  const seats = [{ x: 0.72, y: yF + 0.53, z: hl - 1.25 }];   // 0 = Fahrer
+  for (let z = hl - 2.7; z > -hl + 0.6; z -= 0.86) {
+    for (const [sx, side] of [[0.82, 1], [-0.82, -1]]) {
+      if (side < 0 && BUS_DOORS.some((d) => Math.abs(z - d.z) < d.w / 2 + 0.5)) continue;
+      cabin.box(sx, yF, z, 0.92, 0.4, 0.42, 0, ...dark);                  // Sockel
+      cabin.box(sx, yF + 0.4, z, 0.92, 0.08, 0.44, 0, ...fabric);          // Sitzfläche
+      cabin.box(sx, yF + 0.45, z - 0.24, 0.92, 0.6, 0.07, 0, ...fabric2);  // Lehne
+      for (const ox of [-0.23, 0.23]) seats.push({ x: sx + ox, y: yF + 0.5, z: z + 0.04 });
+    }
+  }
+  for (let z = hl - 2.2; z > -hl + 0.8; z -= 2.1) for (const sx of [-0.33, 0.33]) cabin.cylinder(sx, yF, z, 0.022, 0.022, H - 0.3 - yF, 8, ...rail);
   const wheels = [];
-  for (const [x, z, s] of [[-1.05, 3.7, true], [1.05, 3.7, true], [-1.05, -3.4, false], [1.05, -3.4, false]]) wheels.push({ x, y: 0.5, z, r: 0.52, w: 0.32, steer: s, left: x < 0 });
-  return { parts: { body, glass, head, tail }, wheels, hw: W / 2, hl: L / 2, h: H + 0.4, seat: { x: -0.6, y: 1.6, z: 4.6 }, extras: {}, wheelR: 0.52, rims: 'steel' };
+  for (const [x, z, st] of [[-1.05, 3.7, true], [1.05, 3.7, true], [-1.05, -3.4, false], [1.05, -3.4, false]]) wheels.push({ x, y: 0.5, z, r: 0.52, w: 0.32, steer: st, left: x < 0 });
+  return { parts: { body, glass, head, tail, cabin }, wheels, hw, hl, h: H + 0.4, seat: { x: -0.72, y: yF + 0.53, z: hl - 1.25 }, seats, extras: {}, wheelR: 0.52, rims: 'steel', clear: true };
+}
+
+// Econelo: dreirädriger Elektro-Kabinenroller (45 km/h) – hohe, schmale Kabine mit großen Türfenstern, spitze Front mit
+// Chrom-Scheinwerfern, vorn ein Rad an einer Motorradgabel, hinten zwei Räder unter schwarzen Kotflügeln
+function cabinScooter(paint) {
+  const p = { L: 2.42, W: 1.12, bottom: 0.3, belt: 0.9, hood: 0.84, trunk: 0.98, roof: 1.62, cabin: [0.05, 0.7], rakeF: 0.42, rakeR: 0.14, wheelR: 0.27, wb: 1.74, track: 1.12, bPillar: 0, doors4: true, recline: 0.1, roofCol: [0.04, 0.04, 0.045], noseTaper: 0.5, noseLift: 0.16, bare: true };
+  const { body, glass, head, tail, cabin, lay } = carBody(p, paint);
+  const hl = p.L / 2, dark = [0.035, 0.035, 0.04], chrome = [0.82, 0.84, 0.88];
+  // Front: zwei große Scheinwerfer in Chromgehäusen, Blinker (bernstein), Plakette, Gabel mit Kotflügel
+  for (const sx of [-1, 1]) {
+    body.box(sx * 0.2, 0.7, hl - 0.16, 0.24, 0.2, 0.12, 0, ...chrome);
+    head.box(sx * 0.2, 0.72, hl - 0.1, 0.19, 0.15, 0.05, 0, 1, 0.97, 0.88, { shade: false });
+    head.box(sx * 0.29, 0.86, hl - 0.2, 0.1, 0.05, 0.06, 0, 1, 0.55, 0.08, { shade: false });
+    body.box(sx * 0.62, 1.02, 0.42, 0.1, 0.12, 0.05, 0, ...dark);                      // Spiegel an der A-Säule
+    body.box(sx * 0.565, 0.38, 0.16, 0.012, 0.52, 0.02, 0, ...dark, { noTop: true, noBottom: true });   // Türfuge
+    body.box(sx * 0.565, 0.78, -0.25, 0.02, 0.045, 0.18, 0, ...chrome);                 // Griffmulde
+    body.box(sx * 0.53, 0.3, -0.05, 0.08, 0.06, 1.3, 0, ...dark);                       // Schweller
+    body.box(sx * 0.6, 0.52, -0.82, 0.22, 0.05, 0.66, 0, ...dark);                      // Kotflügel hinten
+    body.box(sx * 0.6, 0.36, -1.13, 0.22, 0.18, 0.04, 0, ...dark);
+    tail.box(sx * 0.42, 0.78, -hl + 0.08, 0.12, 0.3, 0.06, 0, 0.9, 0.05, 0.04, { shade: false });
+  }
+  body.box(0, 0.88, hl - 0.13, 0.12, 0.12, 0.05, 0, ...chrome);
+  body.box(0, 0.35, -hl + 0.06, 0.9, 0.16, 0.12, 0, ...dark);
+  // Gabel (verchromt), vorderer Kotflügel, Lenkkopf
+  const fz = p.wb / 2 + 0.06;
+  for (const sx of [-1, 1]) body.cylinder(sx * 0.085, p.wheelR - 0.02, fz, 0.026, 0.026, 0.44, 8, ...chrome);
+  body.box(0, 0.62, fz + 0.02, 0.24, 0.08, 0.16, 0, ...dark);
+  body.box(0, p.wheelR + 0.24, fz + 0.04, 0.17, 0.035, 0.52, 0, ...dark);
+  const wheels = [
+    { x: 0, y: p.wheelR, z: fz, r: p.wheelR, w: 0.12, steer: true, left: false },
+    { x: -p.track / 2, y: 0.26, z: -p.wb / 2 + 0.06, r: 0.26, w: 0.16, steer: false, left: true },
+    { x: p.track / 2, y: 0.26, z: -p.wb / 2 + 0.06, r: 0.26, w: 0.16, steer: false, left: false },
+  ];
+  return { parts: { body, glass, head, tail, cabin }, wheels, hw: p.W / 2 + 0.08, hl, h: p.roof, seat: seatFrom(lay), extras: { rim: [0.72, 0.74, 0.78] }, wheelR: p.wheelR, clear: true, recline: lay.recline, rims: 10 };
 }
 
 function pickup(paint) {
@@ -703,6 +808,8 @@ export const VEHICLE_TYPES = {
   compact: { name: 'Mini Ciudad', cls: 'car', build: (c) => buildCar('compact', c), maxSpeed: 38, accel: 12, brake: 24, steer: 0.62, grip: 8, mass: 1000, hp: 800, price: 18000, paint: [0, 1, 2, 5, 7, 11, 6, 4] },
   taxi: { name: 'Taxi', cls: 'car', build: () => buildCar('taxi', [0.98, 0.78, 0.05]), maxSpeed: 40, accel: 13, brake: 26, steer: 0.55, grip: 8, mass: 1600, hp: 1000, price: 0, fixedPaint: true },
   police: { name: 'Policía', cls: 'car', build: () => buildCar('police', [0.1, 0.18, 0.42]), maxSpeed: 56, accel: 20, brake: 32, steer: 0.58, grip: 9, mass: 1900, hp: 1300, price: 0, fixedPaint: true },
+  // Kabinenroller, elektrisch: höchstens 45 km/h (12,5 m/s)
+  econelo: { name: 'Econelo', cls: 'car', build: (c) => cabinScooter(c), maxSpeed: 12.5, accel: 5.2, brake: 15, steer: 0.72, grip: 7.6, mass: 450, hp: 650, price: 9900, paint: [3, 2, 0, 1, 4, 11] },
   van: { name: 'Furgón', cls: 'car', build: (c) => buildCar('van', c), maxSpeed: 36, accel: 10, brake: 22, steer: 0.5, grip: 7.5, mass: 2800, hp: 1100, price: 30000, paint: [2, 4, 1, 5, 0] },
   pickup: { name: 'Camioneta', cls: 'car', build: (c) => pickup(c), maxSpeed: 42, accel: 14, brake: 26, steer: 0.5, grip: 8, mass: 2300, hp: 1300, price: 45000, offroad: true, paint: [0, 2, 3, 10, 7, 11] },
   truck: { name: 'Camión', cls: 'car', build: (c) => boxTruck(c), maxSpeed: 30, accel: 7, brake: 18, steer: 0.36, grip: 6.5, mass: 9000, hp: 1800, price: 0, paint: [0, 1, 2, 5, 7] },
@@ -810,5 +917,5 @@ export const vehicleDims = (typeKey) => {
   }
   const m = bodyGeoCache.get(ck);
   // cabin: geschlossenes Auto mit Innenraum (Insassen sitzen sichtbar hinter klaren Scheiben)
-  return { hw: m.hw, hl: m.hl, h: m.h, seat: m.seat, wheelR: m.wheelR, wheels: m.wheels, cabin: !!m.parts.cabin, recline: m.recline || 0 };
+  return { hw: m.hw, hl: m.hl, h: m.h, seat: m.seat, seats: m.seats || null, wheelR: m.wheelR, wheels: m.wheels, cabin: !!m.parts.cabin, recline: m.recline || 0 };
 };

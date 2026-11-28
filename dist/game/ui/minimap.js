@@ -542,6 +542,13 @@ export class Minimap {
     for (const u of g.police.foot) if (u.alive) dot(u, 3);
     for (const h of [g.police.heli, g.police.heli2]) if (h && h.alive) drawBlip({ x: h.x, z: h.z, color: flash ? '#ff5a66' : '#6a9dff', icon: 'heli' }, true);
     if (this.waypoint) drawBlip({ ...this.waypoint, color: BLIP.waypoint.color, icon: BLIP.waypoint.icon }, true);
+    // Mitspieler (Multiplayer): grüne Punkte
+    if (g.net) for (const b of g.net.blips()) {
+      let [sx, sy] = toScreen(b.x, b.z);
+      const dx = sx - half, dy = sy - half, d = rim(dx, dy);
+      if (d > half - 9) { sx = half + (dx / d) * (half - 9); sy = half + (dy / d) * (half - 9); }
+      c.fillStyle = '#22c55e'; c.strokeStyle = '#fff'; c.lineWidth = 1.8; c.beginPath(); c.arc(sx, sy, 5.5, 0, TAU); c.fill(); c.stroke();
+    }
     // Letztes eigenes Fahrzeug
     const lv = p.lastVehicle;
     if (lv && lv.alive && !p.vehicle) drawBlip({ x: lv.x, z: lv.z, color: BLIP.vehicle.color, icon: BLIP.vehicle.icon }, false);
@@ -681,6 +688,16 @@ export class Minimap {
       for (const u of g.police.units) if (u.alive && !u.exploded) dot(u.x, u.z, 7);
       for (const u of g.police.foot) if (u.alive) dot(u.x, u.z, 5);
       for (const h of [g.police.heli, g.police.heli2]) if (h && h.alive) dot(h.x, h.z, 9);
+    }
+    // Mitspieler (Multiplayer): grüner Punkt mit Namen
+    if (g.net) {
+      c.font = `700 ${Math.round(13 * ui)}px ${MAP_FONT}`; c.textAlign = 'center'; c.textBaseline = 'bottom';
+      for (const b of g.net.blips()) {
+        const [sx, sy, ok] = proj(b.x, b.z);
+        if (!ok || !onScreen(sx, sy)) continue;
+        c.fillStyle = '#22c55e'; c.strokeStyle = '#fff'; c.lineWidth = 2.2; c.beginPath(); c.arc(sx, sy, 7 * ui, 0, TAU); c.fill(); c.stroke();
+        c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.75)'; c.strokeText(b.name, sx, sy - 10 * ui); c.fillStyle = '#eafff1'; c.fillText(b.name, sx, sy - 10 * ui);
+      }
     }
     // Spieler: Pfeil in Blickrichtung (auch in 3D relativ zur Kamera), mit pulsierendem Ring
     if (aok && onScreen(ax, ay, 40)) {

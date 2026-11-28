@@ -132,7 +132,7 @@ function db(): PDO
     $pdo->exec('PRAGMA busy_timeout = 8000');
     $pdo->exec('PRAGMA foreign_keys = ON');
     $version = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
-    if ($version >= 4) {
+    if ($version >= 5) {
         return $pdo;
     }
     $pdo->exec('CREATE TABLE IF NOT EXISTS users (
@@ -191,7 +191,29 @@ function db(): PDO
         PRIMARY KEY (user_id, slot)
     )');
     $pdo->exec("INSERT OR IGNORE INTO save_slots (user_id, slot, saved_at, summary, data) SELECT user_id, 1, saved_at, '', data FROM saves");
-    $pdo->exec('PRAGMA user_version = 4');
+    // Version 5: Freundschaften (Paare mit user_a < user_b), Anfragen und Mitteilungen
+    $pdo->exec('CREATE TABLE IF NOT EXISTS friends (
+        user_a INTEGER NOT NULL,
+        user_b INTEGER NOT NULL,
+        since TEXT NOT NULL,
+        PRIMARY KEY (user_a, user_b)
+    )');
+    $pdo->exec('CREATE TABLE IF NOT EXISTS friend_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_id INTEGER NOT NULL,
+        to_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT \'pending\',
+        decided_at INTEGER NOT NULL DEFAULT 0
+    )');
+    $pdo->exec('CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        is_read INTEGER NOT NULL DEFAULT 0
+    )');
+    $pdo->exec('PRAGMA user_version = 5');
     return $pdo;
 }
 
@@ -567,9 +589,256 @@ function setPresence(int $userId, bool $leave): void
     db()->prepare('UPDATE users SET last_seen = ? WHERE id = ?')->execute([$leave ? 0 : time(), $userId]);
 }
 
-// ---------- Speicherstände: Platz 0 = Auto-Save, 1–10 = eigene ----------
+// ---------- Freundschaften ----------
+// Mitglieder suchen, Anfragen schicken, annehmen oder ablehnen (wie users.js). Wer abgelehnt wurde, kann derselben
+// Person erst 24 Stunden später wieder eine Anfrage schicken. Über jede Antwort bekommt der Absender eine Mitteilung.
+
+const DECLINE_BLOCK_SECONDS = 86400;
+const NOTE_MAX = 50;
+
+function friendPair(int $a, int $b): array
+{
+    return $a < $b ? [$a, $b] : [$b, $a];
+}
+
+function areFriends(int $a, int $b): bool
+{
+    [$x, $y] = friendPair($a, $b);
+    $st = db()->prepare('SELECT 1 FROM friends WHERE user_a = ? AND user_b = ?');
+    $st->execute([$x, $y]);
+    return (bool)$st->fetchColumn();
+}
+
+function findUserById(int $id): ?array
+{
+    $st = db()->prepare('SELECT * FROM users WHERE id = ?');
+    $st->execute([$id]);
+    return $st->fetch() ?: null;
+}
+
+function isOnlineRow(array $u): bool
+{
+    return (time() - (int)($u['last_seen'] ?? 0)) < 75;
+}
+
+function pruneFriendRequests(): void
+{
+    $pdo = db();
+    $pdo->prepare("DELETE FROM friend_requests WHERE status = 'declined' AND decided_at < ?")->execute([time() - DECLINE_BLOCK_SECONDS]);
+    $pdo->exec("DELETE FROM friend_requests WHERE status NOT IN ('pending', 'declined')");
+}
+
+// Sekunden, bis $from an $to wieder eine Anfrage schicken darf (0 = sofort)
+function declineWait(int $from, int $to): int
+{
+    $st = db()->prepare("SELECT MAX(decided_at) FROM friend_requests WHERE from_id = ? AND to_id = ? AND status = 'declined'");
+    $st->execute([$from, $to]);
+    $t = (int)$st->fetchColumn();
+    return $t > 0 ? max(0, $t + DECLINE_BLOCK_SECONDS - time()) : 0;
+}
+
+function pendingRequest(int $from, int $to): ?array
+{
+    $st = db()->prepare("SELECT * FROM friend_requests WHERE from_id = ? AND to_id = ? AND status = 'pending' LIMIT 1");
+    $st->execute([$from, $to]);
+    return $st->fetch() ?: null;
+}
+
+function relationTo(int $me, int $other): array
+{
+    if (areFriends($me, $other)) {
+        return ['relation' => 'friend'];
+    }
+    if (pendingRequest($me, $other)) {
+        return ['relation' => 'outgoing'];
+    }
+    $inc = pendingRequest($other, $me);
+    if ($inc) {
+        return ['relation' => 'incoming', 'requestId' => (int)$inc['id']];
+    }
+    $wait = declineWait($me, $other);
+    if ($wait > 0) {
+        return ['relation' => 'blocked', 'waitMs' => $wait * 1000];
+    }
+    return ['relation' => 'none'];
+}
+
+function addNote(int $userId, string $text): void
+{
+    $pdo = db();
+    $pdo->prepare('INSERT INTO notifications (user_id, text, created_at, is_read) VALUES (?, ?, ?, 0)')->execute([$userId, $text, isoNow()]);
+    $pdo->prepare('DELETE FROM notifications WHERE user_id = ? AND id NOT IN (SELECT id FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT ' . NOTE_MAX . ')')->execute([$userId, $userId]);
+}
+
+function waitText(int $seconds): string
+{
+    $min = max(1, (int)ceil($seconds / 60));
+    $h = intdiv($min, 60);
+    $m = $min % 60;
+    return $h > 0 ? $h . ' Std.' . ($m ? ' ' . $m . ' Min.' : '') : $m . ' Min.';
+}
+
+// Mitglieder suchen: Namen bestehen nur aus Buchstaben und Zahlen, alles andere wird aus der Suche entfernt
+function searchMembers(array $me, string $q): array
+{
+    $q = strtolower((string)preg_replace('/[^A-Za-z0-9]/', '', $q));
+    if (strlen($q) < 2) {
+        return [];
+    }
+    pruneFriendRequests();
+    $st = db()->prepare("SELECT id, name, rank, last_seen FROM users WHERE id <> ? AND lower(name) LIKE ?
+        ORDER BY (CASE WHEN lower(name) LIKE ? THEN 0 ELSE 1 END), name COLLATE NOCASE LIMIT 20");
+    $st->execute([(int)$me['id'], '%' . $q . '%', $q . '%']);
+    $out = [];
+    foreach ($st->fetchAll() as $u) {
+        $out[] = array_merge(['id' => (int)$u['id'], 'name' => $u['name'], 'rank' => $u['rank'], 'online' => isOnlineRow($u)], relationTo((int)$me['id'], (int)$u['id']));
+    }
+    return $out;
+}
+
+function friendsOverview(array $me): array
+{
+    pruneFriendRequests();
+    $pdo = db();
+    $id = (int)$me['id'];
+    $st = $pdo->prepare('SELECT u.id, u.name, u.rank, u.last_seen, f.since FROM friends f JOIN users u ON u.id = (CASE WHEN f.user_a = ? THEN f.user_b ELSE f.user_a END) WHERE f.user_a = ? OR f.user_b = ?');
+    $st->execute([$id, $id, $id]);
+    $friends = [];
+    foreach ($st->fetchAll() as $u) {
+        $friends[] = ['id' => (int)$u['id'], 'name' => $u['name'], 'rank' => $u['rank'], 'online' => isOnlineRow($u), 'since' => $u['since']];
+    }
+    usort($friends, function ($a, $b) {
+        if ($a['online'] !== $b['online']) {
+            return $a['online'] ? -1 : 1;
+        }
+        return strcasecmp($a['name'], $b['name']);
+    });
+    $st = $pdo->prepare("SELECT r.id, r.created_at, u.id AS uid, u.name FROM friend_requests r JOIN users u ON u.id = r.from_id WHERE r.to_id = ? AND r.status = 'pending' ORDER BY r.id");
+    $st->execute([$id]);
+    $incoming = [];
+    foreach ($st->fetchAll() as $r) {
+        $incoming[] = ['id' => (int)$r['id'], 'from' => ['id' => (int)$r['uid'], 'name' => $r['name']], 'createdAt' => $r['created_at']];
+    }
+    $st = $pdo->prepare("SELECT r.id, r.created_at, u.id AS uid, u.name FROM friend_requests r JOIN users u ON u.id = r.to_id WHERE r.from_id = ? AND r.status = 'pending' ORDER BY r.id");
+    $st->execute([$id]);
+    $outgoing = [];
+    foreach ($st->fetchAll() as $r) {
+        $outgoing[] = ['id' => (int)$r['id'], 'to' => ['id' => (int)$r['uid'], 'name' => $r['name']], 'createdAt' => $r['created_at']];
+    }
+    $st = $pdo->prepare('SELECT id, text, created_at FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY id');
+    $st->execute([$id]);
+    $notes = [];
+    foreach ($st->fetchAll() as $n) {
+        $notes[] = ['id' => (int)$n['id'], 'text' => $n['text'], 'time' => $n['created_at']];
+    }
+    return ['friends' => $friends, 'incoming' => $incoming, 'outgoing' => $outgoing, 'notifications' => $notes];
+}
+
+function sendFriendRequest(array $me, array $body): array
+{
+    pruneFriendRequests();
+    $pdo = db();
+    $meId = (int)$me['id'];
+    if (isset($body['userId']) && is_numeric($body['userId'])) {
+        $target = findUserById((int)$body['userId']);
+    } else {
+        $st = $pdo->prepare('SELECT * FROM users WHERE lower(name) = lower(?) LIMIT 1');
+        $st->execute([trim(str($body['name'] ?? null))]);
+        $target = $st->fetch() ?: null;
+    }
+    if (!$target) {
+        throw new HttpError(404, 'Mitglied nicht gefunden.');
+    }
+    $tid = (int)$target['id'];
+    $tname = (string)$target['name'];
+    if ($tid === $meId) {
+        throw new HttpError(400, 'Du kannst dir nicht selbst eine Freundschaftsanfrage schicken.');
+    }
+    if (areFriends($meId, $tid)) {
+        throw new HttpError(409, 'Du bist mit ' . $tname . ' bereits befreundet.');
+    }
+    if (pendingRequest($meId, $tid)) {
+        throw new HttpError(409, 'Du hast ' . $tname . ' bereits eine Anfrage geschickt.');
+    }
+    if (pendingRequest($tid, $meId)) {
+        throw new HttpError(409, $tname . ' hat dir bereits eine Anfrage geschickt – du findest sie oben rechts unter „Ausloggen“.');
+    }
+    $wait = declineWait($meId, $tid);
+    if ($wait > 0) {
+        throw new HttpError(429, $tname . ' hat deine Freundschaftsanfrage abgelehnt. Eine neue Anfrage ist erst 24 Stunden danach möglich (noch ' . waitText($wait) . ').');
+    }
+    $pdo->prepare('DELETE FROM friend_requests WHERE from_id = ? AND to_id = ?')->execute([$meId, $tid]);
+    $pdo->prepare("INSERT INTO friend_requests (from_id, to_id, created_at, status, decided_at) VALUES (?, ?, ?, 'pending', 0)")->execute([$meId, $tid, isoNow()]);
+    return ['id' => (int)$pdo->lastInsertId(), 'to' => ['id' => $tid, 'name' => $tname]];
+}
+
+function respondFriendRequest(array $me, array $body): array
+{
+    $pdo = db();
+    $meId = (int)$me['id'];
+    $st = $pdo->prepare("SELECT * FROM friend_requests WHERE id = ? AND to_id = ? AND status = 'pending'");
+    $st->execute([is_numeric($body['id'] ?? null) ? (int)$body['id'] : 0, $meId]);
+    $req = $st->fetch();
+    if (!$req) {
+        throw new HttpError(404, 'Diese Freundschaftsanfrage gibt es nicht mehr.');
+    }
+    $fromId = (int)$req['from_id'];
+    $accept = !empty($body['accept']);
+    if ($accept) {
+        $pdo->prepare('DELETE FROM friend_requests WHERE id = ?')->execute([(int)$req['id']]);
+        $pdo->prepare("DELETE FROM friend_requests WHERE from_id = ? AND to_id = ? AND status = 'pending'")->execute([$meId, $fromId]);
+        [$a, $b] = friendPair($meId, $fromId);
+        $pdo->prepare('INSERT OR IGNORE INTO friends (user_a, user_b, since) VALUES (?, ?, ?)')->execute([$a, $b, isoNow()]);
+        addNote($fromId, $me['name'] . ' hat deine Freundschaftsanfrage angenommen.');
+    } else {
+        $pdo->prepare("UPDATE friend_requests SET status = 'declined', decided_at = ? WHERE id = ?")->execute([time(), (int)$req['id']]);
+        addNote($fromId, $me['name'] . ' hat deine Freundschaftsanfrage abgelehnt.');
+    }
+    return ['ok' => true, 'accepted' => $accept];
+}
+
+function removeFriend(array $me, array $body): array
+{
+    [$a, $b] = friendPair((int)$me['id'], is_numeric($body['userId'] ?? null) ? (int)$body['userId'] : 0);
+    $st = db()->prepare('DELETE FROM friends WHERE user_a = ? AND user_b = ?');
+    $st->execute([$a, $b]);
+    if ($st->rowCount() < 1) {
+        throw new HttpError(404, 'Diese Freundschaft gibt es nicht.');
+    }
+    return ['ok' => true];
+}
+
+function cancelFriendRequest(array $me, array $body): array
+{
+    $st = db()->prepare("DELETE FROM friend_requests WHERE id = ? AND from_id = ? AND status = 'pending'");
+    $st->execute([is_numeric($body['id'] ?? null) ? (int)$body['id'] : 0, (int)$me['id']]);
+    if ($st->rowCount() < 1) {
+        throw new HttpError(404, 'Diese Anfrage gibt es nicht mehr.');
+    }
+    return ['ok' => true];
+}
+
+function readNotifications(array $me, array $body): array
+{
+    $pdo = db();
+    if (isset($body['ids']) && is_array($body['ids'])) {
+        $del = $pdo->prepare('DELETE FROM notifications WHERE id = ? AND user_id = ?');
+        foreach ($body['ids'] as $nid) {
+            if (is_numeric($nid)) {
+                $del->execute([(int)$nid, (int)$me['id']]);
+            }
+        }
+    } else {
+        $pdo->prepare('DELETE FROM notifications WHERE user_id = ?')->execute([(int)$me['id']]);
+    }
+    return ['ok' => true];
+}
+
+// ---------- Speicherstände: Platz 0 = Auto-Save, 1–5 = eigene ----------
+// Früher gab es 10 Plätze: Stände in 6–10 lassen sich weiterhin laden, gespeichert wird nur noch in 1–5.
 
 const SAVE_SLOTS = 10;
+const SAVE_SLOTS_WRITE = 5;
 
 // Kurzinfo für die Übersicht (Figur, Geld, Missionen, Spielzeit) aus dem gespeicherten Spielstand
 function saveSummary($save): array

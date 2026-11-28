@@ -36,8 +36,10 @@ export class Input {
       return this.blocked.has(code) ? null : code;
     };
 
+    // Tippen in Eingabefeldern oder in einem Dialog über dem Spiel (z. B. Admin-Menü der Startseite, Mitgliedersuche) geht nicht ans Spiel
+    const typing = (e) => { const t = e.target; return !!(t && t.closest && t.closest('input, textarea, select, dialog, [contenteditable="true"]')); };
     this._kd = (e) => {
-      if (!this.enabled) return;
+      if (!this.enabled || typing(e)) return;
       if (e.code === 'Tab' || e.code.startsWith('F') && e.code.length <= 3 && e.code !== 'F') e.preventDefault();
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
       const code = this._map(e.code);

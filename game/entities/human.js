@@ -280,6 +280,31 @@ export class Human {
     this.pose = { lean: 0 };
   }
 
+  // Aufstehen aus dem Bett (k 0..1): liegen → aufsetzen → Beine über die Bettkante → aufstehen. Die Hüfte bleibt über dem
+  // Ursprung der Figur (beim Aufstehen wandert sie 0,42 m nach vorn über die Füße); Bettkante auf Hüfthöhe 0,67 m.
+  _wake(k) {
+    const B = this.B, E = (x) => x * x * (3 - 2 * x), seg = (a, b) => E(clamp((k - a) / (b - a), 0, 1));
+    const up = seg(0.22, 0.45), swing = seg(0.45, 0.66), stand = seg(0.68, 1);
+    const th = (-Math.PI / 2) * (1 - up);
+    this.group.rotation.x = th;
+    const hy = 0.67 + 0.28 * stand, hz = 0.42 * stand, a = -th, c = Math.cos(a), s = Math.sin(a);
+    B.hips.position.set(0, hy * c - hz * s, hy * s + hz * c);
+    const legs = (-Math.PI / 2) * up * (1 - stand), knee = 1.5 * swing * (1 - stand);
+    B.legL.rotation.x = legs; B.legR.rotation.x = legs; B.shinL.rotation.x = knee; B.shinR.rotation.x = knee;
+    B.legL.rotation.z = -0.06; B.legR.rotation.z = 0.06;
+    // Abstützen beim Aufsetzen, Hände auf den Knien beim Sitzen, Schwung nach vorn beim Aufstehen
+    const push = Math.sin(Math.PI * up), lean = Math.sin(Math.PI * stand);
+    B.armL.rotation.x = 0.35 * push - 0.55 * swing * (1 - stand) - 0.4 * lean; B.armR.rotation.x = B.armL.rotation.x;
+    B.armL.rotation.z = -0.12 - 0.25 * push; B.armR.rotation.z = 0.12 + 0.25 * push;
+    B.foreL.rotation.x = -0.5 * swing * (1 - stand) - 0.3 * lean; B.foreR.rotation.x = B.foreL.rotation.x;
+    B.spine.rotation.x = 0.18 * push + 0.12 * swing * (1 - stand) + 0.5 * lean;
+    // erst noch schlaftrunken: Kopf dreht sich hin und her
+    const wakeT = clamp(k / 0.22, 0, 1);
+    B.head.rotation.y = Math.sin(wakeT * Math.PI * 2) * 0.35 * (1 - up);
+    B.head.rotation.x = -0.15 * push;
+    this.hand.visible = false;
+  }
+
   setWeapon(obj) {
     while (this.hand.children.length) this.hand.remove(this.hand.children[0]);
     if (obj) this.hand.add(obj);
@@ -340,6 +365,7 @@ export class Human {
       if (st.aim) { B.armR.rotation.set(-(Math.PI / 2 + (st.aimPitch || 0)) + 0.04 + rec, 0.12, 0.05); B.foreR.rotation.set(-0.05, 0, 0); }
       return;
     }
+    if (st.wake !== null && st.wake !== undefined) { this._wake(st.wake); return; }
     if (st.lie) {
       this.group.rotation.x = -Math.PI / 2;
       this.mesh.position.set(0, 0.2, 0);

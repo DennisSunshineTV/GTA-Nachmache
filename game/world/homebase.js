@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { HOUSE, GARAGE_IN } from './beachhouse.js';
 import { VEHICLE_TYPES } from '../entities/vehicle_models.js';
+import { makeWeaponModel } from '../combat/weapons.js';
 
 const GARAGE_CLS = new Set(['car', 'bike']);
 const NOT_KEEPABLE = new Set(['police']);
@@ -39,6 +40,7 @@ export class HomeBase {
     game.scene.add(this.group);
     this._buildGarageDoor(gb);
     this._buildHouseDoor(mb);
+    this._buildSafe(mb);
     // Warmes Licht innen (immer in der Szene, damit sich die Lichtanzahl der Shader nie ändert; aus = Stärke 0)
     this.lights = [
       { l: new THREE.PointLight(0xffd6a0, 0, 16, 1.4), b: mb, lx: 0, lz: 0.5, y: this.yM + 3.2, on: 36 },
@@ -138,6 +140,124 @@ export class HomeBase {
     this.game.physics.addColliders([this.dCol]);
   }
 
+  // ---------- Tresor (Schlafzimmer, neben dem Kleiderschrank) ----------
+  // Zu Beginn liegt darin die Pistole mit Munition; wer ihn mit F öffnet, nimmt sie heraus (owned.safeTaken).
+  _buildSafe(mb) {
+    const S = HOUSE.safe, T = 0.045;
+    const steel = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.16, 0.17, 0.19), roughness: 0.38, metalness: 0.75 });
+    const inner = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.32, 0.05, 0.06), roughness: 0.9 });   // roter Filz innen
+    const chrome = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.8, 0.8, 0.82), roughness: 0.18, metalness: 1 });
+    const root = new THREE.Group();
+    const q = this.toWorld(mb, S.x, S.z);
+    root.position.set(q.x, this.yM, q.z); root.rotation.y = mb.rot;
+    const box = (w, h, d, x, y, z, m) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; root.add(o); return o; };
+    // Gehäuse (vorn offen), Innenfutter und Zwischenboden
+    box(S.w, S.h, T, 0, S.h / 2, -S.d / 2 + T / 2, steel);
+    for (const sx of [-1, 1]) box(T, S.h, S.d, sx * (S.w / 2 - T / 2), S.h / 2, 0, steel);
+    box(S.w, T, S.d, 0, S.h - T / 2, 0, steel);
+    box(S.w, 0.06, S.d, 0, 0.03, 0, steel);
+    box(S.w - 2 * T, S.h - 0.1, 0.01, 0, S.h / 2, -S.d / 2 + T + 0.006, inner);
+    box(S.w - 2 * T, 0.02, S.d - T - 0.02, 0, 0.47, 0.01, steel);
+    box(S.w - 2 * T, 0.012, S.d - T - 0.03, 0, 0.487, 0.01, inner);
+    // Tür an Scharnieren links: Drehrad, Zahlenfeld mit Leuchte, Griff
+    this.safeDoor = new THREE.Group();
+    this.safeDoor.position.set(-S.w / 2, 0, S.d / 2);
+    root.add(this.safeDoor);
+    const leaf = new THREE.Mesh(new THREE.BoxGeometry(S.w, S.h, 0.07), steel); leaf.position.set(S.w / 2, S.h / 2, 0.035); leaf.castShadow = true; this.safeDoor.add(leaf);
+    const add = (geo, m, x, y, z, rx = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.x = rx; this.safeDoor.add(o); return o; };
+    add(new THREE.CylinderGeometry(0.085, 0.085, 0.025, 28), chrome, S.w / 2, S.h * 0.58, 0.083, Math.PI / 2);
+    add(new THREE.CylinderGeometry(0.06, 0.07, 0.02, 24), steel, S.w / 2, S.h * 0.58, 0.1, Math.PI / 2);
+    for (let i = 0; i < 3; i++) { const sp = add(new THREE.BoxGeometry(0.018, 0.2, 0.018), chrome, S.w / 2, S.h * 0.58, 0.115); sp.rotation.z = i * Math.PI / 3; }
+    add(new THREE.BoxGeometry(0.15, 0.2, 0.012), new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.3, metalness: 0.4 }), S.w / 2, S.h * 0.28, 0.076);
+    this.safeLed = add(new THREE.BoxGeometry(0.03, 0.016, 0.01), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 0.25, 0.2) }), S.w / 2 + 0.04, S.h * 0.28 + 0.07, 0.084);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) add(new THREE.BoxGeometry(0.028, 0.022, 0.008), chrome, S.w / 2 - 0.04 + c * 0.04, S.h * 0.28 + 0.025 - r * 0.035, 0.084);
+    add(new THREE.BoxGeometry(0.03, 0.22, 0.03), chrome, S.w - 0.07, S.h * 0.58, 0.1);
+    for (const y of [0.18, S.h - 0.18]) add(new THREE.CylinderGeometry(0.018, 0.018, 0.12, 10), chrome, 0, y, 0.035);
+    // Inhalt: Pistole auf dem Zwischenboden, Munitionsschachteln und Geldbündel darunter
+    this.safeLoot = new THREE.Group();
+    const gun = makeWeaponModel('pistol');
+    if (gun) { gun.rotation.set(Math.PI / 2, 0, 1.4); gun.position.set(-0.02, 0.52, 0.02); gun.scale.setScalar(1.1); this.safeLoot.add(gun); }
+    const ammo = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.75, 0.55, 0.12), roughness: 0.6 });
+    for (const [x, z] of [[-0.14, -0.05], [-0.14, 0.06], [0.0, 0.0]]) { const a = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.09), ammo); a.position.set(x, 0.095, z); this.safeLoot.add(a); }
+    const cash = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.32, 0.55, 0.3), roughness: 0.8 });
+    for (let i = 0; i < 3; i++) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.04, 0.08), cash); c.position.set(0.15, 0.08 + i * 0.042, -0.02); this.safeLoot.add(c); }
+    root.add(this.safeLoot);
+    this.group.add(root);
+    this.safeRoot = root;
+    this.safeOpen = 0; this.safeWant = false; this.safeTakeT = 0;
+    this._syncSafe();
+  }
+
+  get safeFull() { return !this.game.owned.safeTaken; }
+  _syncSafe() { if (this.safeLoot) this.safeLoot.visible = this.safeFull || this.safeTakeT > 0; }
+
+  // F vor dem Tresor: Tür öffnen; liegt die Pistole noch darin, nimmt die Figur sie heraus
+  openSafe() {
+    const g = this.game, p = g.player;
+    if (!this.safeDoor) return;
+    this.safeWant = true;
+    g.audio?.pickup?.();
+    if (this.safeFull) {
+      g.owned.safeTaken = true;
+      this.safeTakeT = 0.9;                                 // der Inhalt verschwindet, wenn die Tür offen ist
+      p.giveWeapon('pistol', 60);
+      p.setWeapon('pistol');
+      g.ui?.notify('Pistole und Munition aus dem Tresor genommen', 'good');
+    } else g.ui?.notify('Der Tresor ist leer', 'info');
+  }
+
+  _updateSafe(dt) {
+    if (!this.safeDoor) return;
+    const p = this.game.player, sp = this.home.safe;
+    if (this.safeWant && Math.hypot(p.x - sp.x, p.z - sp.z) > 2.6) this.safeWant = false;   // weggegangen: Tür fällt zu
+    const before = this.safeOpen;
+    this.safeOpen = Math.max(0, Math.min(1, this.safeOpen + (this.safeWant ? dt * 1.4 : -dt * 0.9)));
+    if (this.safeOpen !== before) {
+      const e = this.safeOpen < 0.5 ? 2 * this.safeOpen * this.safeOpen : 1 - Math.pow(-2 * this.safeOpen + 2, 2) / 2;
+      this.safeDoor.rotation.y = -e * 1.95;
+      this.safeLed.material.color.setRGB(this.safeOpen > 0.02 ? 0.25 : 2.4, this.safeOpen > 0.02 ? 2.2 : 0.25, 0.2);
+    }
+    if (this.safeTakeT > 0 && this.safeOpen > 0.6) { this.safeTakeT -= dt; if (this.safeTakeT <= 0) this._syncSafe(); }
+  }
+
+  // ---------- Aufwachen im Bett (nach dem Tod und nach dem Schlafen) ----------
+  // Die Figur liegt im Bett, setzt sich auf, schwingt die Beine über die Bettkante und steht auf; die Kamera schaut dabei
+  // aus dem Raum aufs Bett. Danach übernimmt der Spieler wieder.
+  wakeUp(done = null) {
+    const g = this.game, p = g.player, mb = this.home.mainB, bd = HOUSE.bed, r = mb.rot;
+    const P0 = this.toWorld(mb, bd.x - 0.1, bd.z), P1 = this.toWorld(mb, bd.x + 0.3, bd.z + 0.85);
+    const h0 = r + Math.PI / 2, h1 = r, DUR = 5.4;
+    const yF = this.yM;
+    if (p.vehicle) g.exitVehicle(p, true);
+    p.state = 'ground'; p.vx = p.vz = 0; p.vy = 0; p.climb = null; p.aiming = false;
+    p.x = P0.x; p.z = P0.z; p.y = yF; p.h = h0;
+    p.anim.wake = 0; p.anim.lie = false; p.anim.sit = false;
+    g.controlsEnabled = false;
+    const camA = this.toWorld(mb, -1.05, -0.35), camB = this.toWorld(mb, -1.55, -0.95), look = this.toWorld(mb, bd.x + 0.2, bd.z + 0.2);
+    let t = 0;
+    const smooth = (x) => x * x * (3 - 2 * x);
+    const place = () => {
+      const k = Math.min(1, t / DUR), sw = smooth(Math.min(1, Math.max(0, (k - 0.45) / 0.21)));
+      p.anim.wake = k;
+      p.x = P0.x + (P1.x - P0.x) * sw; p.z = P0.z + (P1.z - P0.z) * sw; p.y = yF; p.h = h0 + (h1 - h0) * sw;
+      const c = smooth(k);
+      g.cineCam = { x: camA.x + (camB.x - camA.x) * c, y: yF + 1.55 + 0.25 * c, z: camA.z + (camB.z - camA.z) * c, lx: look.x, ly: yF + 0.75 + 0.35 * c, lz: look.z };
+      return k;
+    };
+    place();
+    p.scripted = (dt) => {
+      t += dt;
+      p.vx = p.vz = 0;
+      if (place() < 1) return;
+      // fertig: die Hüfte steht jetzt 0,42 m vor dem Ursprung → Figur dorthin, normale Pose
+      p.x += Math.sin(h1) * 0.42; p.z += Math.cos(h1) * 0.42;
+      p.anim.wake = null; p.scripted = null; g.cineCam = null;
+      p.camYaw = h1; p.camPitch = -0.12; p.camInit = false;
+      g.controlsEnabled = true;
+      done && done();
+    };
+  }
+
   // ---------- Garage: Stellplätze und Besitz ----------
   insideGarage(x, z, margin = 0) {
     const gb = this.home.garageB, q = this.toLocal(gb, x, z);
@@ -213,6 +333,8 @@ export class HomeBase {
       this.dPivot.rotation.y = -e * 1.75;
       this.dCol.y0 = this.dOpen > 0.3 ? 1e9 : this.yM - 0.3;
     }
+
+    this._updateSafe(dt);
 
     // Licht: nachts und bei Annäherung
     const lightOn = near ? 1 : 0;

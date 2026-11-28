@@ -25,7 +25,7 @@ function cornerOf(ui, uj, di, dj) {
   return { a, b, p: [ni[0] * di + ui[0] * a, ni[1] * di + ui[1] * a], ok: true, straight: false };
 }
 
-function armsOf(net, node) {
+export function armsOf(net, node) {
   const arms = [];
   for (const id of node.roads) {
     const r = net.roads[id];
@@ -45,7 +45,7 @@ function armsOf(net, node) {
 }
 
 // Punkt auf einem Arm in Strecke s vom Knoten, seitlich um off versetzt (positiv = n-Seite, n = (−uz, ux) des Arms).
-function armPoint(net, arm, s, off) {
+export function armPoint(net, arm, s, off) {
   const r = arm.r, o = {};
   net.pointAt(r, arm.end === 'a' ? s : r.len - s, o);
   const sg = arm.end === 'a' ? 1 : -1;

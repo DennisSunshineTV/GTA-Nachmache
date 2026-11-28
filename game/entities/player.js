@@ -35,8 +35,7 @@ export class Player extends Character {
     this.firstPerson = false;
     this.lastVehicle = null;
     this.money = 0;
-    this.giveWeapon('pistol', 60);
-    this.setWeapon('pistol');
+    // Ohne Waffe: Die Pistole liegt zu Beginn im Tresor des Strandhauses (world/homebase.js, openSafe)
     this.showInVehicle = false;
     this.smoothDist = 3.8;
     this.camInit = false;

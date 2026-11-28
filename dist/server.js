@@ -151,11 +151,54 @@ async function handleApi(req, res, urlPath) {
     }
     if (method === 'PUT' || method === 'POST') {
       rateLimit('save', ip, 60, 60_000);
+      // Gespeichert wird in Platz 0 (Auto-Save) oder in einen der 5 eigenen Plätze
+      if (slot !== undefined && slot > users.SAVE_SLOTS_WRITE) throw new users.HttpError(400, 'Ungültiger Speicherplatz.');
       const body = await readJson(req, 300_000);
       if (!body.save || typeof body.save !== 'object') throw new users.HttpError(400, 'Kein Speicherstand übergeben.');
       const target = slot === undefined ? 1 : slot;
       return sendJson(res, 200, { ok: true, slot: target, savedAt: users.putSave(me.id, target, body.save) });
     }
+  }
+
+  // ---------- Freundschaften ----------
+  if (urlPath === '/api/members/search' && method === 'GET') {
+    if (!me) throw new users.HttpError(401, 'Bitte einloggen.');
+    rateLimit('search', ip, 120, 60_000);
+    const q = new URL(req.url, 'http://localhost').searchParams.get('q') || '';
+    return sendJson(res, 200, { users: users.searchMembers(me, q) });
+  }
+  if (urlPath === '/api/friends' && method === 'GET') {
+    if (!me) throw new users.HttpError(401, 'Bitte einloggen.');
+    return sendJson(res, 200, users.friendsOverview(me));
+  }
+  const friendActions = {
+    '/api/friends/request': (b) => ({ ok: true, request: users.sendFriendRequest(me, b) }),
+    '/api/friends/respond': (b) => users.respondFriendRequest(me, b),
+    '/api/friends/remove': (b) => users.removeFriend(me, b),
+    '/api/friends/cancel': (b) => users.cancelFriendRequest(me, b),
+    '/api/notifications/read': (b) => users.readNotifications(me, b),
+  };
+  if (friendActions[urlPath] && method === 'POST') {
+    if (!me) throw new users.HttpError(401, 'Bitte einloggen.');
+    rateLimit('friends', ip, 60, 60_000);
+    return sendJson(res, 200, friendActions[urlPath](await readJson(req)));
+  }
+
+  // ---------- Multiplayer: 2 Server mit je höchstens 16 Spielern (nur mit Account) ----------
+  if (urlPath === '/api/mp/servers' && method === 'GET') {
+    return sendJson(res, 200, { servers: users.mpServers() });
+  }
+  if (urlPath === '/api/mp/join' && method === 'POST') {
+    if (!me) throw new users.HttpError(401, 'Bitte einloggen. Der Multiplayer ist nur mit einem registrierten Account möglich.');
+    rateLimit('mpjoin', ip, 30, 60_000);
+    const body = await readJson(req);
+    return sendJson(res, 200, users.mpJoin(me, body.server));
+  }
+  if (urlPath === '/api/mp/sync' && method === 'POST') {
+    return sendJson(res, 200, users.mpSync(await readJson(req, 4000)));
+  }
+  if (urlPath === '/api/mp/leave' && method === 'POST') {
+    return sendJson(res, 200, users.mpLeave(await readJson(req)));
   }
 
   // Admin-Bereich: Sysadmin und Admin dürfen ansehen, nur Sysadmin darf ändern.

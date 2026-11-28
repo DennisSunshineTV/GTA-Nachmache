@@ -59,7 +59,7 @@ export class RoadNet {
     const road = {
       id: this.roads.length, kind, w: opts.w ?? k.w, speed: k.speed, lanes: k.lanes, sw: opts.sw ?? k.sw, fall: k.fall,
       pts: p, ys: null, cum: null, len: 0, a, b, name: opts.name || '', oneway: !!opts.oneway, noTraffic: !!k.noTraffic || !!opts.noTraffic,
-      urban: !!opts.urban, flat: !!opts.flat,
+      urban: !!opts.urban, flat: !!opts.flat, hidden: !!opts.hidden,
     };
     this.roads.push(road);
     na.roads.push(road.id);
@@ -112,14 +112,14 @@ export class RoadNet {
   }
 
   // Nachträglich hinzugefügte Straße (nach finalize): bindet an das Höhenprofil einer bestehenden Straße an
-  addLate(kind, pts, { yB = null, hf = this.hf, name = '', noTraffic = false, w = null, flat = false } = {}) {
+  addLate(kind, pts, { yB = null, hf = this.hf, name = '', noTraffic = false, w = null, flat = false, hidden = false } = {}) {
     const a = this.addNode(pts[0][0], pts[0][1], 0.5), b = this.addNode(pts[pts.length - 1][0], pts[pts.length - 1][1], 0.5);
     if (a === b) return null;
     const na = this.nodes[a], nb = this.nodes[b];
     na.y = Math.max(0.35, hf.h(na.x, na.z));
     nb.y = yB ?? Math.max(0.35, hf.h(nb.x, nb.z));
     const p = catmull(pts.map((q) => [q[0], q[1]]), 8, false, 0.5);
-    const r = this.addRoad(kind, p, a, b, { name, noTraffic, w: w ?? undefined, flat });
+    const r = this.addRoad(kind, p, a, b, { name, noTraffic, w: w ?? undefined, flat, hidden });
     if (!r) return null;
     this._profile(r);
     for (let i = 0; i < r.pts.length - 1; i++) {

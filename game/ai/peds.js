@@ -136,6 +136,7 @@ export class PedManager {
 
   _think(c, dt, px, pz) {
     const a = c.ai, I = c.intent, g = this.game;
+    if (c.scripted && a.mode !== 'sit') { c.scripted = null; c.anim.sit = false; }   // Gast springt auf (Schreck, Schüsse)
     I.aim = false; I.fire = false; I.sprint = false;
     a.t -= dt; a.bumpT = Math.max(0, a.bumpT - dt);
     a.fear = Math.max(0, a.fear - dt);
@@ -152,6 +153,8 @@ export class PedManager {
       case 'idle': I.mx = I.mz = 0; I.speed = 0; c.anim.phone = a.outfit !== 'vendor'; if (a.t <= 0) { c.anim.phone = false; a.mode = a.route ? 'walk' : 'wander'; } break;
       case 'lie': I.mx = I.mz = 0; I.speed = 0; break;
       case 'sit': I.mx = I.mz = 0; I.speed = 0; break;
+      case 'busWait': I.mx = I.mz = 0; I.speed = 0; I.face = a.face; break;                 // wartet an der Haltestelle
+      case 'board': { const dx = a.tx - c.x, dz = a.tz - c.z, l = Math.hypot(dx, dz) || 1; I.mx = dx / l; I.mz = dz / l; I.speed = l > 0.4 ? 0.55 : 0; break; }   // zur Bustür
       case 'dance': I.mx = I.mz = 0; I.speed = 0; break;
       case 'swim': this._swim(c, dt); break;
       case 'flee': this._flee(c, dt); break;

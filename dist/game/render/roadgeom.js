@@ -98,6 +98,7 @@ function ribbon(mb, r, i, off0, off1, strip, y, trimA, trimB, vScale = 1, flip =
 export function buildRoads(ctx, segs, mb) {
   const net = ctx.net;
   for (const { r, i } of segs) {
+    if (r.hidden) continue;   // z. B. Holzflächen am Strandhaus: eigene, durchgehende Geometrie (beachgeom.js)
     const strip = STRIP_OF[r.kind] || 'street';
     const trimA = armTrim(net, r, 'a');
     const trimB = armTrim(net, r, 'b');
@@ -253,6 +254,7 @@ export function buildNodes(ctx, nodes, mb) {
   const net = ctx.net;
   const [z0, z1] = uRange('zebra'), [s0, s1] = uRange('sidewalk');
   for (const n of nodes) {
+    if (n.roads.some((id) => net.roads[id].hidden)) continue;
     const jn = junctionOf(net, n);
     if (jn) {
       const [strip, uf] = padLook(jn);

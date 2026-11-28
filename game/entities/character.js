@@ -165,6 +165,7 @@ export class Character {
     if (this.state === 'dead') { this.deadT += dt; this._updateVisual(dt); return; }
     if (this.state === 'vehicle') { this._followVehicle(dt); this._updateVisual(dt); return; }
     if (this.climb) { this._climb(dt); this._updateVisual(dt); return; }
+    if (this.scripted) { this.scripted(dt); this._updateVisual(dt); return; }   // gesteuerter Ablauf (z. B. Aufstehen aus dem Bett)
     const I = this.intent;
     const physics = g.physics;
     const px = this.x, pz = this.z;
@@ -329,13 +330,14 @@ export class Character {
       climb: this.climb ? Math.min(1, this.climb.t / this.climb.dur) : null,
       throw: this.throwT,
       wheel: this.vehicle ? this.vehicle.steerAngle : 0,
-      carSeat: seated,
+      carSeat: seated && !veh.dims.seats,        // im Bus mit angewinkelten Knien
       recline: seated ? veh.dims.recline || 0 : 0,
       passenger: seated && veh.driver !== this,
       sit: !!this.anim.sit,
       lie: !!this.anim.lie,
       dance: !!this.anim.dance,
       phone: !!this.anim.phone,
+      wake: this.anim.wake ?? null,
     };
     if (this.state === 'air') { st.speed = 0; }
     H.update(dt, st);
@@ -353,10 +355,11 @@ export class Character {
 
   // Sitzplatz im Auto mit der vollen Lage des Fahrzeugs (Nicken, Wanken, Federung): so bleibt der Kopf immer unter dem Dach
   _seatPose(H, v) {
-    const grp = v.group, s = v.dims.seat, i = this.seat || 0;
+    const grp = v.group, s = v.dims.seat, i = this.seat || 0, list = v.dims.seats;
     grp.updateMatrix();
     const side = i === 0 ? 1 : -1;
-    _seatV.set(-s.x * side, s.y - 0.55, s.z - (i >= 2 ? 1.0 : 0)).applyMatrix4(grp.matrix);
+    if (list && list[i]) _seatV.set(list[i].x, list[i].y - 0.55, list[i].z).applyMatrix4(grp.matrix);   // Bus: feste Sitzplätze
+    else _seatV.set(-s.x * side, s.y - 0.55, s.z - (i >= 2 ? 1.0 : 0)).applyMatrix4(grp.matrix);
     H.group.position.copy(_seatV);
     this._tiltX = grp.rotation.x; this._tiltZ = grp.rotation.z;
   }

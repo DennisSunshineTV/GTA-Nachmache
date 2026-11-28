@@ -2,7 +2,15 @@
 // Liegt bewusst in /assets/ (öffentlich), weil die Optionen schon vor der Anmeldung erreichbar sind.
 
 export const SETTINGS_KEY = 'streetlife.settings.v1';
-export const DEFAULTS = { quality: 'high', master: 0.8, music: 0.7, sfx: 0.8, lobby: 0.5, autosave: true, sens: 1, invertY: false, keys: {} };
+export const DEFAULTS = { quality: 'high', resolution: '1080p', shadows: true, master: 0.8, music: 0.7, sfx: 0.8, lobby: 0.5, autosave: true, sens: 1, invertY: false, keys: {} };
+
+// Auflösungen (Render-Auflösung des Spiels; gleiche Schlüssel wie RESOLUTIONS in game/render/engine.js)
+export const RESOLUTION_OPTIONS = [
+  ['4k', '4K (3840 × 2160)'],
+  ['2k', '2K (2560 × 1440)'],
+  ['1080p', 'Standard: 1920 × 1080'],
+  ['720p', '720P (1280 × 720)'],
+];
 
 export function loadSettings() {
   try {
@@ -24,8 +32,8 @@ export const ACTION_GROUPS = [
 
 const A = (id, group, label, codes, extra = {}) => ({ id, group, label, codes: Array.isArray(codes) ? codes : [codes], ...extra });
 export const ACTIONS = [
-  A('forward', 'move', 'Vorwärts · Gas · Flugzeug: Nase runter', 'KeyW'),
-  A('back', 'move', 'Rückwärts · Bremse · Flugzeug: Nase hoch', 'KeyS'),
+  A('forward', 'move', 'Vorwärts · Gas · Flugzeug/Hubschrauber: Nase runter', 'KeyW'),
+  A('back', 'move', 'Rückwärts · Bremse · Flugzeug/Hubschrauber: Nase hoch (Hubschrauber wird langsamer)', 'KeyS'),
   A('left', 'move', 'Links · Flugzeug: Querneigung links', 'KeyA'),
   A('right', 'move', 'Rechts · Flugzeug: Querneigung rechts', 'KeyD'),
   A('sprint', 'move', 'Sprinten (zu Fuß) · Gas (Flugzeug)', ['ShiftLeft', 'ShiftRight'], { shown: 'Shift' }),
@@ -149,6 +157,11 @@ function injectStyle() {
 .opt-toggle{font:inherit;font-weight:800;min-width:84px;padding:8px 16px;border-radius:999px;border:1px solid rgba(255,255,255,.3);color:#fff;background:rgba(255,255,255,.1);cursor:pointer}
 .opt-toggle.on{background:#22c55e;border-color:#22c55e;color:#04210f}
 .opt-all button{font:inherit;font-size:13px;font-weight:700;padding:7px 12px;color:#fff;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.3);border-radius:8px;cursor:pointer}
+.opt-seg{display:inline-flex;padding:3px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22)}
+.opt-seg button{font:inherit;font-size:14px;font-weight:800;padding:7px 16px;border:0;border-radius:999px;color:#cfc6e6;background:transparent;cursor:pointer}
+.opt-seg button:hover{color:#fff}
+.opt-seg button.on{background:#22c55e;color:#04210f}
+.opt-seg button:last-child.on{background:#f87171;color:#2a0606}
 @media (max-width:640px){.opt-krow{grid-template-columns:minmax(0,1fr) 90px 130px 28px}.opt-prow{grid-template-columns:120px minmax(0,1fr)}}
 `;
   document.head.appendChild(st);
@@ -207,6 +220,32 @@ export function renderOptions(root, { settings, onChange = () => {} }) {
     sel.addEventListener('input', () => { s.quality = sel.value; changed(); });
     row.append(lab, sel);
     gfx.append(row);
+    // Auflösung
+    const rrow = el('div', 'opt-row');
+    const rlab = el('label', '', 'Auflösung');
+    const rsel = el('select');
+    for (const [k, label] of RESOLUTION_OPTIONS) {
+      const o = el('option', '', label);
+      o.value = k; if ((s.resolution || '1080p') === k) o.selected = true;
+      rsel.append(o);
+    }
+    rsel.addEventListener('input', () => { s.resolution = rsel.value; changed(); });
+    rrow.append(rlab, rsel);
+    gfx.append(rrow);
+    // Schatten einblenden / ausblenden
+    const srow = el('div', 'opt-row');
+    const slab = el('label', '', 'Schatten');
+    const seg = el('div', 'opt-seg');
+    const on = el('button', '', 'Einblenden'), off = el('button', '', 'Ausblenden');
+    on.type = off.type = 'button';
+    const paint = () => { const v = s.shadows !== false; on.classList.toggle('on', v); off.classList.toggle('on', !v); on.setAttribute('aria-pressed', String(v)); off.setAttribute('aria-pressed', String(!v)); };
+    on.addEventListener('click', () => { s.shadows = true; paint(); changed(); });
+    off.addEventListener('click', () => { s.shadows = false; paint(); changed(); });
+    paint();
+    seg.append(on, off);
+    srow.append(slab, seg);
+    gfx.append(srow);
+    gfx.append(el('p', 'opt-hint', 'Das Spielfenster bekommt die Maße der Auflösung (mittig; ist das Browserfenster kleiner, wird es passend verkleinert). Mit „Vollbild“ (Startbildschirm unten rechts) füllt das Spiel den ganzen Bildschirm. 4K und 2K sind schärfer, brauchen aber eine starke Grafikkarte; 720P läuft auch auf schwächeren Rechnern flüssig. Ausgeblendete Schatten bringen zusätzlich Leistung (bei Grafikqualität „Niedrig“ gibt es keine Schatten).'));
   }
   panels.grafik = gfx;
 
@@ -221,7 +260,7 @@ export function renderOptions(root, { settings, onChange = () => {} }) {
     tg.addEventListener('click', () => { s.autosave = s.autosave === false; paint(); changed(); });
     paint();
     row.append(lab, tg);
-    sav.append(row, el('p', 'opt-hint', 'Ist Auto-Save an, speichert das Spiel nach jeder geschafften Mission automatisch auf dem Server. Der Auto-Save hat einen eigenen Platz und steht in der Liste der Speicherstände ganz oben (die 10 eigenen Speicherstände darunter bleiben unberührt). Von Hand speichern kannst du immer, auch bei ausgeschaltetem Auto-Save.'));
+    sav.append(row, el('p', 'opt-hint', 'Ist Auto-Save an, speichert das Spiel nach jeder geschafften Mission automatisch auf dem Server. Der Auto-Save hat einen eigenen Platz und steht in der Liste der Speicherstände ganz oben (die 5 eigenen Speicherplätze darunter bleiben unberührt). Von Hand speichern kannst du immer, auch bei ausgeschaltetem Auto-Save.'));
   }
   panels.speichern = sav;
 

@@ -4,6 +4,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/lib.php';
+require __DIR__ . '/mp.php';
 
 $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 $path = rawurldecode((string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH) ?: '/'));
@@ -25,6 +26,17 @@ try {
             'pdo_sqlite' => $sqlite,
             'data_directory_writable' => $writable,
         ]);
+    }
+
+    // Multiplayer: Zustandsmeldungen und Serverliste kommen ohne Datenbank aus (viele kurze Anfragen pro Sekunde)
+    if ($path === '/api/mp/servers' && $method === 'GET') {
+        sendJson(200, ['servers' => mpServers()]);
+    }
+    if ($path === '/api/mp/sync' && $method === 'POST') {
+        sendJson(200, mpSync(readJson(4000)));
+    }
+    if ($path === '/api/mp/leave' && $method === 'POST') {
+        sendJson(200, mpLeave(readJson()));
     }
 
     $ip = clientIp();
@@ -88,6 +100,10 @@ try {
         }
         if ($method === 'PUT' || $method === 'POST') {
             rateLimit('save', $ip, 60, 60);
+            // Gespeichert wird in Platz 0 (Auto-Save) oder in einen der 5 eigenen Plätze
+            if ($slot !== null && $slot > SAVE_SLOTS_WRITE) {
+                throw new HttpError(400, 'Ungültiger Speicherplatz.');
+            }
             requireJsonRequest();
             $raw = readBody(300000);
             $body = json_decode($raw === '' ? '{}' : $raw, false);
@@ -101,6 +117,61 @@ try {
             $target = $slot ?? 1;
             sendJson(200, ['ok' => true, 'slot' => $target, 'savedAt' => putSave((int)$me['id'], $target, $json, json_encode(saveSummary($body->save)))]);
         }
+    }
+
+    // Freundschaften: Mitglieder suchen, Anfragen, Antworten, Mitteilungen
+    if ($path === '/api/members/search' && $method === 'GET') {
+        if (!$me) {
+            throw new HttpError(401, 'Bitte einloggen.');
+        }
+        rateLimit('search', $ip, 120, 60);
+        sendJson(200, ['users' => searchMembers($me, is_string($_GET['q'] ?? null) ? $_GET['q'] : '')]);
+    }
+    if ($path === '/api/friends' && $method === 'GET') {
+        if (!$me) {
+            throw new HttpError(401, 'Bitte einloggen.');
+        }
+        sendJson(200, friendsOverview($me));
+    }
+    $friendActions = [
+        '/api/friends/request' => 'request',
+        '/api/friends/respond' => 'respond',
+        '/api/friends/remove' => 'remove',
+        '/api/friends/cancel' => 'cancel',
+        '/api/notifications/read' => 'read',
+    ];
+    if (isset($friendActions[$path]) && $method === 'POST') {
+        if (!$me) {
+            throw new HttpError(401, 'Bitte einloggen.');
+        }
+        rateLimit('friends', $ip, 60, 60);
+        $body = readJson();
+        switch ($friendActions[$path]) {
+            case 'request':
+                sendJson(200, ['ok' => true, 'request' => sendFriendRequest($me, $body)]);
+                break;
+            case 'respond':
+                sendJson(200, respondFriendRequest($me, $body));
+                break;
+            case 'remove':
+                sendJson(200, removeFriend($me, $body));
+                break;
+            case 'cancel':
+                sendJson(200, cancelFriendRequest($me, $body));
+                break;
+            default:
+                sendJson(200, readNotifications($me, $body));
+        }
+    }
+
+    // Multiplayer beitreten: nur mit Account
+    if ($path === '/api/mp/join' && $method === 'POST') {
+        if (!$me) {
+            throw new HttpError(401, 'Bitte einloggen. Der Multiplayer ist nur mit einem registrierten Account möglich.');
+        }
+        rateLimit('mpjoin', $ip, 30, 60);
+        $body = readJson();
+        sendJson(200, mpJoin($me, $body['server'] ?? null));
     }
 
     // Admin-Bereich: Sysadmin und Admin dürfen ansehen, nur Sysadmin darf ändern

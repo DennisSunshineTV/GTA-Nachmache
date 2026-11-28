@@ -18,6 +18,7 @@ export const ICON_PATHS = {
   skull: 'M12 2c-5.200 0-9 3.500-9 8.300c0 2.700 1.200 4.8 3.2 6.1v3.900c0 .6.4 1 1 1h1.600v-2.500h2v2.5h2.400v-2.5h2v2.500h1.6c.6 0 1-.4 1-1v-3.900c2-1.3 3.2-3.4 3.2-6.1C21 5.5 17.200 2 12 2zM8.200 9a2.300 2.300 0 1 0 0 4.600a2.300 2.300 0 1 0 0-4.6zM15.800 9a2.300 2.300 0 1 0 0 4.600a2.300 2.300 0 1 0 0-4.600zM12 13.5l1.5 3.100h-3z',
   heli: 'M2 3.500h19v2h-8.500v2.100c4.300.2 7.700 3.1 7.700 6.700c0 1.600-1.3 2.900-2.9 2.9H15.200l1 2.2H19v2H5.500v-2h2.700l1-2.4c-2.5-.8-4.4-2.700-5-5.1L1.500 11l1-2l2.9 1.9c1.1-1.900 3.2-3.100 5.600-3.300V5.500H2z',
   fuel: 'M4 3.5C4 2.7 4.7 2 5.5 2h7c.8 0 1.5.7 1.5 1.5V12h1c1.1 0 2 .9 2 2v3.5c0 .4.3.7.7.7s.7-.3.7-.7V9.4L16.7 7.6l1.2-1.2l2.5 2.5c.4.4.6.9.6 1.4v7.2c0 1.5-1.2 2.7-2.7 2.7s-2.7-1.2-2.7-2.7V14H14v6h1v2H3v-2h1zM6.2 4.5V9h5.6V4.5z',
+  food: 'M6 2h1.6v6.2h1.3V2h1.6v6.2h1.3V2h1.6v7.4c0 1.5-1 2.6-2.4 3V22H8.500v-9.600C7 12 6 10.900 6 9.400zM16.800 2C19 2 20.200 4.700 20.200 8.600c0 2.600-.8 4.300-2.300 4.900V22H15.300V2.300c.5-.2 1-.3 1.500-.3z',
   wrench: 'M21.3 6.2l-3.4 3.4l-2.8-.7l-.7-2.8l3.4-3.4C15.6 1.9 12.9 2.6 11.6 4.3C10.5 5.7 10.3 7.5 10.9 9.1L2.7 17.3a2.3 2.3 0 0 0 3.3 3.3l8.2-8.2c1.6.6 3.4.4 4.8-.7C20.7 10.4 21.4 7.7 21.3 6.2zM4.6 19.7a1.1 1.1 0 1 1 0-2.2a1.1 1.1 0 0 1 0 2.2z',
 };
 
@@ -47,6 +48,8 @@ export const POI_ICONS = {
   bar: { icon: 'drink', color: '#ffc633', label: 'Bar', minScale: 0.22 },
   fuel: { icon: 'fuel', color: '#ffb340', label: 'Tankstelle', minScale: 0.045 },
   repair: { icon: 'wrench', color: '#7ad1ff', label: 'Werkstatt', minScale: 0.045 },
+  parking: { icon: 'P', color: '#3d86f5', label: 'Parkplatz', minScale: 0.12, square: true },
+  restaurant: { icon: 'food', color: '#ff9a3d', label: 'Restaurant', minScale: 0.1 },
 };
 
 // Reihenfolge der Einträge in der Legende (zeilenweise, zwei Spalten wie auf der Vorlage)
@@ -61,6 +64,7 @@ export const LEGEND_ITEMS = [
   POI_ICONS.harbor, POI_ICONS.airport,
   POI_ICONS.club, POI_ICONS.bar,
   POI_ICONS.fuel, POI_ICONS.repair,
+  POI_ICONS.parking, POI_ICONS.restaurant,
 ];
 
 const TAU = Math.PI * 2;

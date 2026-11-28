@@ -7,6 +7,7 @@ import { waveHeight } from '../render/water.js';
 
 let NEXT_ID = 1;
 const WALK = 1.9, RUN = 4.3, SPRINT = 6.9, SWIM = 2.0;
+const _seatV = new THREE.Vector3();
 
 export class Character {
   constructor(game, kind, x, z, opts = {}) {
@@ -59,8 +60,9 @@ export class Character {
   get inVehicle() { return this.state === 'vehicle'; }
   get speed() { return Math.hypot(this.vx, this.vz); }
 
-  ensureHuman() {
-    if (this.human || this.noHuman) return this.human;
+  // force: auch Figuren ohne eigenes Modell (Fahrer im Verkehr) bekommen eines, wenn man sie im Auto sehen kann
+  ensureHuman(force = false) {
+    if (this.human || (this.noHuman && !force)) return this.human;
     const rng = mulberry32(this.seed);
     const outfit = randomOutfit(rng, this.outfitKind);
     outfit.id = this.outfitKind;
@@ -166,13 +168,16 @@ export class Character {
     const I = this.intent;
     const physics = g.physics;
     const px = this.x, pz = this.z;
-    // Wasser?
+    // Wasser? (Meer: Höhe 0; Schwimmbecken: eigene Wasserhöhe)
     const ground = physics.groundHeight(this.x, this.z);
-    const depth = -ground;
+    const pool = physics.poolAt(this.x, this.z);
+    const surf = pool ? physics.poolLevel(pool) : 0;
+    const depth = surf - ground;
     const wasSwim = this.state === 'swim';
     if (depth > 1.35) this.state = 'swim';
     else if (this.state === 'swim') { this.state = 'ground'; }
     this.swimming = this.state === 'swim';
+    this.inPool = pool;
 
     // Wunschgeschwindigkeit
     let top = I.sprint ? SPRINT : I.speed > 0.6 ? RUN : WALK;
@@ -198,9 +203,14 @@ export class Character {
     let nx = this.x + this.vx * dt, nz = this.z + this.vz * dt;
     const ng = physics.groundHeight(nx, nz);
     const onGround = this.state === 'ground';
-    // Schwimmer gleiten nicht unter einen Steg (und werden nicht hinaufgehoben): hinauf geht es nur durch Klettern
+    // Schwimmer gleiten nicht unter einen Steg (und werden nicht hinaufgehoben): hinauf geht es nur durch Klettern.
+    // Ebenso der Beckenrand eines Pools: hinaus geht es nur durch Klettern (der Spieler klettert automatisch, siehe player.js)
     const atPier = this.state === 'swim' && physics.platformHeight(nx, nz) - this.y > 0.7;
-    if (atPier || (onGround && ng - this.y > 0.7 && ng > -1)) {
+    const atRim = !!pool && (this.state === 'swim' || this.state === 'ground') && physics.poolAt(nx, nz) !== pool && ng - this.y > 0.7;
+    this.atPoolRim = atRim;
+    // Passanten und Polizisten steigen nach kurzer Zeit von selbst aus dem Becken
+    if (atRim && !this.isPlayer) { this.rimT = (this.rimT || 0) + dt; if (this.rimT > 1.2) { this.rimT = 0; this.x = nx; this.z = nz; this.y = ng; this.state = 'ground'; this._updateVisual(dt); return; } }
+    if (atPier || atRim || (onGround && ng - this.y > 0.7 && ng > -1)) {
       // zu steil/hoch: seitlich gleiten versuchen
       const gx = physics.groundHeight(nx, this.z), gz = physics.groundHeight(this.x, nz);
       nx = gx - this.y <= 0.7 ? nx : this.x; nz = gz - this.y <= 0.7 ? nz : this.z;
@@ -216,7 +226,7 @@ export class Character {
     // Höhe
     const gh = physics.groundHeight(this.x, this.z);
     if (this.swimming) {
-      const wave = waveHeight(this.x, this.z, physics.time, 0.6);
+      const wave = this.inPool ? physics.poolLevel(this.inPool) : waveHeight(this.x, this.z, physics.time, 0.6);
       // Tauchen (nur Spieler): diveDepth Meter unter der Schwimmlage, nie unter den Grund
       // Beim Kraulen liegt der Körper flach an der Oberfläche (Rücken und Arme sichtbar)
       const crawl = (this.diveDepth || 0) > 0.3 ? 0 : clamp(this.speedH / 2.4, 0, 1) * 0.62;
@@ -279,13 +289,21 @@ export class Character {
     const d2 = (this.x - cam.x) ** 2 + (this.z - cam.z) ** 2;
     const far = d2 > (this.isPlayer ? 1e12 : 220 * 220);
     if (far && !this.isPlayer) { if (this.human) this.human.group.visible = false; this.visible = false; return; }
-    if (this.state === 'vehicle' && !this.showInVehicle) { if (this.human) this.human.group.visible = false; this.visible = false; return; }
-    if (!this.human) this.ensureHuman();
+    // Im geschlossenen Auto sitzen die Insassen sichtbar hinter den klaren Scheiben (Gesichter erkennt man aus der Nähe)
+    const veh = this.state === 'vehicle' ? this.vehicle : null;
+    const seated = !!(veh && veh.dims.cabin && veh.alive && !veh.exploded);
+    if (veh && !this.showInVehicle && !seated) { if (this.human) this.human.group.visible = false; this.visible = false; return; }
+    if (seated && !this.isPlayer && d2 > 85 * 85) {
+      if (this.human) { this.human.group.visible = false; if (this.noHuman && d2 > 130 * 130) this.dropHuman(); }
+      this.visible = false; return;
+    }
+    if (!this.human) this.ensureHuman(seated);
     if (!this.human) return;
     const H = this.human;
     H.group.visible = true; this.visible = true;
     H.group.position.set(this.x, this.y, this.z);
     H.group.rotation.y = this.h;
+    if (seated) this._seatPose(H, veh);
     const W = this.weapon;
     const gun = W && !W.melee && !W.thrown && W.model;
     const I = this.intent;
@@ -311,6 +329,9 @@ export class Character {
       climb: this.climb ? Math.min(1, this.climb.t / this.climb.dur) : null,
       throw: this.throwT,
       wheel: this.vehicle ? this.vehicle.steerAngle : 0,
+      carSeat: seated,
+      recline: seated ? veh.dims.recline || 0 : 0,
+      passenger: seated && veh.driver !== this,
       sit: !!this.anim.sit,
       lie: !!this.anim.lie,
       dance: !!this.anim.dance,
@@ -318,7 +339,26 @@ export class Character {
     };
     if (this.state === 'air') { st.speed = 0; }
     H.update(dt, st);
+    if (seated) H.group.rotation.set(this._tiltX || 0, veh.h, this._tiltZ || 0);   // Neigung des Autos (nach dem Zurücksetzen in update)
     if (this.state === 'dead' && this.deadT > 0) H.group.position.y = this.y;
+  }
+
+  // Nach der Fahrzeugphysik aufrufen (der Spieler rechnet vor den Fahrzeugen): Figur sitzt sonst ein Bild hinter dem Sitz
+  resyncSeat() {
+    const v = this.state === 'vehicle' ? this.vehicle : null;
+    if (!v || !this.human || !this.human.group.visible) return;
+    if (v.dims.cabin) { this._seatPose(this.human, v); this.human.group.rotation.set(this._tiltX || 0, v.h, this._tiltZ || 0); }
+    else { this._followVehicle(0); this.human.group.position.set(this.x, this.y, this.z); this.human.group.rotation.y = this.h; }
+  }
+
+  // Sitzplatz im Auto mit der vollen Lage des Fahrzeugs (Nicken, Wanken, Federung): so bleibt der Kopf immer unter dem Dach
+  _seatPose(H, v) {
+    const grp = v.group, s = v.dims.seat, i = this.seat || 0;
+    grp.updateMatrix();
+    const side = i === 0 ? 1 : -1;
+    _seatV.set(-s.x * side, s.y - 0.55, s.z - (i >= 2 ? 1.0 : 0)).applyMatrix4(grp.matrix);
+    H.group.position.copy(_seatV);
+    this._tiltX = grp.rotation.x; this._tiltZ = grp.rotation.z;
   }
 
   // Position der Mündung / Schussursprung

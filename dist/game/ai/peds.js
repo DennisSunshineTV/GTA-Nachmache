@@ -56,7 +56,7 @@ export class PedManager {
         const s = r.cum[nr.i] + (r.cum[nr.i + 1] - r.cum[nr.i]) * nr.t;
         const off = (r.w / 2 + Math.max(r.sw, 2) * 0.5) * side;
         const t = laneTarget(net, r, true, s, off, {});
-        if (g.physics.groundHeight(t.px, t.pz) < 0.1) continue;
+        if (g.physics.groundHeight(t.px, t.pz) < 0.1 || g.physics.poolAt(t.px, t.pz)) continue;
         if (Math.hypot(t.px - px, t.pz - pz) < rMin * 0.8) continue;
         const p = this._make(outfit, t.px, t.pz, { mode: outfit === 'vendor' ? 'idle' : nearClub && night && Math.random() < 0.45 ? 'dance' : 'walk' }, { road: r, fwd: Math.random() < 0.5, s, side, off });
         return p;
@@ -191,12 +191,16 @@ export class PedManager {
         const an = Math.random() * 6.28, rr = 6 + Math.random() * 22;
         const tx = c.x + Math.cos(an) * rr, tz = c.z + Math.sin(an) * rr;
         const gh = g.physics.groundHeight(tx, tz);
+        // nicht in einen Pool hinein (auch nicht quer hindurch)
+        if (g.physics.poolAt(tx, tz) || g.physics.poolAt((tx + c.x) / 2, (tz + c.z) / 2)) continue;
         if (gh > 0.3 && gh < c.y + 1.2) { a.tx = tx; a.tz = tz; break; }
       }
       a.t = 6 + Math.random() * 12;
     }
     const dx = a.tx - c.x, dz = a.tz - c.z, l = Math.hypot(dx, dz) || 1;
     I.mx = dx / l; I.mz = dz / l; I.speed = 0.5;
+    // vor einem Pool stehen bleiben und ein neues Ziel suchen
+    if (!c.inPool && g.physics.poolAt(c.x + I.mx * 1.1, c.z + I.mz * 1.1)) { I.mx = I.mz = 0; a.t = 0; a.tx = c.x; a.tz = c.z; }
   }
 
   _swim(c, dt) {
@@ -206,7 +210,7 @@ export class PedManager {
       for (let k = 0; k < 6; k++) {
         const an = Math.random() * 6.28, rr = 5 + Math.random() * 14;
         const tx = c.x + Math.cos(an) * rr, tz = c.z + Math.sin(an) * rr;
-        if (g.physics.groundHeight(tx, tz) < -1.6) { a.tx = tx; a.tz = tz; break; }
+        if (g.physics.groundHeight(tx, tz) < -1.6 && !g.physics.poolAt(tx, tz)) { a.tx = tx; a.tz = tz; break; }
       }
       a.t = 5 + Math.random() * 8;
     }

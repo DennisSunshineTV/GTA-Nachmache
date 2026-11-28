@@ -72,7 +72,7 @@ export function clearRoads(ctx) {
 
   // --- Häuser ---
   for (const b of ctx.buildings) {
-    if (b.style === 'beach' || b.style === 'service') continue;
+    if (b.style === 'beach' || b.style === 'service' || b.style === 'resto') continue;   // eigene, eingeebnete Grundstücke
     const pts = roadPoints(net, b, clearance);
     const full = { x0: -b.w / 2, x1: b.w / 2, z0: -b.d / 2, z1: b.d / 2 };
     if (!pts.some((p) => depth(p, full) > 0.01)) continue;

@@ -39,6 +39,9 @@ export class Shops {
       const q = g.ctx.home.inside;
       this.home = M.add({ x: q.x, z: q.z, radius: 0.9, height: 1.1, color: [0.4, 1, 0.5], hint: 'Wohnung: Speichern & Garage', onInteract: () => this.apartment(), blip, interactRadius: 1.6 });
       this.markers.push(this.home);
+      // Das Bett selbst: F → Aufwachzeit wählen (unsichtbarer Marker, man steht neben dem Bett)
+      const bed = g.ctx.home.bed;
+      if (bed) this.markers.push(M.add({ x: bed.x, z: bed.z, radius: 1, height: 1, invisible: true, hint: 'Schlafen', onInteract: () => g.ui.panels.sleepMenu(), interactRadius: 1.95 }));
     } else {
       const sp = g.startPosition(); const hp = freeSpot(g.ctx, sp.x + 14, sp.z + 10, 3);
       this.home = add(hp.x, hp.z, 'Wohnung: Speichern & Garage', [0.4, 1, 0.5], () => this.apartment(), blip);
@@ -152,7 +155,7 @@ export class Shops {
     const g = this.game;
     const items = [
       { label: 'Spiel speichern', sub: 'Fortschritt auf dem Server sichern' + (g.autoSaveOn ? ' · Auto-Save ist an (automatisch nach jeder Mission)' : ''), fn: () => g.ui.panels.saveMenu('save') },
-      { label: 'Bis 08:00 Uhr schlafen', sub: 'Gesundheit auffüllen, Zeit vorspulen', fn: () => { g.atm.hour = 8; g.player.hp = g.player.maxHp; g.ui.notify('Gut geschlafen', 'good'); g.ui.panels.close(); } },
+      { label: 'Schlafen …', sub: 'Aufwachzeit wählen: Gesundheit auffüllen, ein neuer Tag beginnt', fn: () => g.ui.panels.sleepMenu() },
     ];
     g.owned.vehicles.forEach((o, i) => items.push({ label: `Garage: ${VEHICLE_TYPES[o.type].name}`, sub: 'Fahrzeug bereitstellen', fn: () => { const exist = g.vehicles.list.find((v) => v.ownedIdx === i && v.alive); if (exist) { const gs = this.garageSpot(); if (gs && exist.cls !== 'plane' && exist.cls !== 'boat') { exist.x = gs.x; exist.z = gs.z; exist.h = gs.h; exist.y = g.physics.groundHeight(gs.x, gs.z) + 0.6; } else { exist.x = g.player.x + 5; exist.z = g.player.z + 3; } exist.vx = exist.vz = 0; } else this.spawnOwned(i); g.ui.panels.close(); } }));
     g.ui.panels.listMenu('Deine Wohnung', items, 'Hier bist du sicher.');
@@ -169,6 +172,15 @@ export class Shops {
       g.ui.panels.listMenu(pr.name, [
         { label: `Einnahmen abholen: ${fmtMoney(amt)}`, sub: `${fmtMoney(pr.income)} pro Spielstunde (max. 8 Stunden)`, disabled: amt < 1, fn: () => { g.addMoney(amt); this.pending[pr.id] = 0; g.ui.notify(`+${fmtMoney(amt)} Einnahmen`, 'cash'); g.ui.panels.close(); } },
       ]);
+    }
+  }
+
+  // Zeit vorgespult (Schlafen): Einnahmen der Immobilien für diese Spielstunden gutschreiben (höchstens 8 Stunden)
+  advanceHours(h) {
+    const g = this.game;
+    for (const pr of PROPERTIES) {
+      if (!g.owned.properties[pr.id]) continue;
+      this.pending[pr.id] = Math.min(pr.income * 8, (this.pending[pr.id] || 0) + pr.income * h);
     }
   }
 

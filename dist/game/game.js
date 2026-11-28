@@ -32,7 +32,7 @@ export class Game {
     this.controlsEnabled = true;
     this.characters = [];
     this.money = opts.money ?? 5000;
-    this.stats = { kills: 0, distance: 0, crimes: 0, playMs: 0, missionsDone: 0 };
+    this.stats = { kills: 0, distance: 0, crimes: 0, playMs: 0, missionsDone: 0, days: 0, maxWanted: 0 };
     this.timeScale = 1 / 100;   // Spielstunden pro Sekunde (1 Std = 100 s)
     this.god = false; this.godVehicles = false;
     this.wreckMat = new THREE.MeshStandardMaterial({ color: 0x1a1816, roughness: 0.9, metalness: 0.2 });
@@ -74,6 +74,17 @@ export class Game {
     const nr = this.ctx.net.nearest(poi.x, poi.z, 250, (r) => r.kind === 'promenade' || r.kind === 'street');
     const x = nr ? nr.x : poi.x, z = nr ? nr.z : poi.z;
     return { x, z, heading: nr ? Math.atan2(nr.road.pts[Math.min(nr.i + 1, nr.road.pts.length - 1)][0] - nr.road.pts[nr.i][0], nr.road.pts[Math.min(nr.i + 1, nr.road.pts.length - 1)][1] - nr.road.pts[nr.i][1]) : 0, road: nr };
+  }
+
+  // Multiplayer: Start am Hafen von Palma, jeder Spieler an einer eigenen Stelle entlang der Promenade
+  mpStartPosition(id = 0) {
+    const poi = this.ctx.pois.find((p) => p.id === 'palma.harbor') || this.ctx.pois.find((p) => p.type === 'city');
+    const nr = this.ctx.net.nearest(poi.x, poi.z, 250, (r) => r.kind === 'promenade' || r.kind === 'street');
+    if (!nr) return { x: poi.x, z: poi.z, heading: 0, road: null };
+    const r = nr.road, s = Math.max(5, Math.min(r.len - 5, r.cum[nr.i] + ((id % 9) - 4) * 3.5));
+    const p = this.ctx.net.pointAt(r, s, {});
+    const side = (r.w / 2 + Math.max(1, r.sw) * 0.5);
+    return { x: p.x - p.dz * side, z: p.z + p.dx * side, heading: Math.atan2(p.dx, p.dz), road: nr };
   }
 
   createPlayer(who, pos) {
@@ -329,7 +340,7 @@ export class Game {
 
   onExplosion(x, z, r, source) { if (source === this.player || source?.driver === this.player) this.police.crime('explosion', this.player, x, z, true); this.peds.hearShot(x, z, 110, source); this.missions?.onExplosion?.(x, z, r, source); }
 
-  onWantedChanged(w, up) { this.ui?.wantedChanged?.(w, up); this.missions?.onWanted?.(w); }
+  onWantedChanged(w, up) { if (w > (this.stats.maxWanted || 0)) this.stats.maxWanted = w; this.ui?.wantedChanged?.(w, up); this.missions?.onWanted?.(w); }
 
   onHeadshot(shooter, target) { if (shooter === this.player) this.ui?.notify('Kopfschuss!', 'info'); }
 
@@ -381,6 +392,30 @@ export class Game {
     this.missions?.onRespawn?.();
   }
 
+  // Schlafen im eigenen Bett bis zur gewählten Uhrzeit: Bild wird schwarz, die Uhr läuft vor, danach volle Gesundheit.
+  // Geht der Schlaf über Mitternacht, beginnt ein neuer Spieltag (Statistik „Tage im Spiel“).
+  sleep(hour) {
+    if (this.net || this.sleeping) return false;
+    const p = this.player, from = this.atm.hour;
+    let dh = ((hour - from) % 24 + 24) % 24;
+    if (dh < 0.5) dh += 24;
+    this.sleeping = true;
+    this.controlsEnabled = false;
+    this.ui?.sleepOverlay(from, dh, () => {
+      if (from + dh >= 24) this.stats.days = (this.stats.days || 0) + 1;
+      this.atm.hour = (from + dh) % 24;
+      p.hp = p.maxHp; p.stamina = 1; p.exhausted = false;
+      this.shops?.advanceHours?.(dh);
+      this.weatherT = 0;                 // nach dem Aufwachen kann sich das Wetter geändert haben
+      this.controlsEnabled = true;
+      this.sleeping = false;
+      const hh = Math.floor(this.atm.hour), mm = Math.round((this.atm.hour - hh) * 60);
+      this.ui?.banner(hour < 12 ? 'Guten Morgen!' : hour < 18 ? 'Ausgeschlafen' : 'Guten Abend!', `Tag ${(this.stats.days || 0) + 1} · ${String(hh).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')} Uhr`, 3.2);
+      this.ui?.notify('Gut geschlafen – Gesundheit aufgefüllt', 'good');
+    });
+    return true;
+  }
+
   teleport(x, z, y = null) {
     const p = this.player;
     const v = p.vehicle;
@@ -404,10 +439,19 @@ export class Game {
       this.time += dt;
       this.physics.time += dt;
       this.stats.playMs += dt * 1000;
-      this.atm.hour = (this.atm.hour + dt * this.timeScale * (this.timeFrozen ? 0 : 1)) % 24;
-      this._weather(dt);
+      if (this.net) this.net.applyClock(this.atm);        // Multiplayer: Uhrzeit und Wetter kommen vom Server
+      else {
+        // Spieluhr: um Mitternacht beginnt ein neuer Spieltag (Statistik „Tage im Spiel“)
+        let nh = this.atm.hour + dt * this.timeScale * (this.timeFrozen ? 0 : 1);
+        if (nh >= 24) { nh -= 24; this.stats.days = (this.stats.days || 0) + 1; }
+        this.atm.hour = nh;
+        this._weather(dt);
+      }
       this.player.update(dt, input);
+      // Zurückgelegte Strecke (zu Fuß und im Fahrzeug; Sprünge durch Teleport zählen nicht)
+      { const o = this.player.vehicle || this.player; if (this._lp) { const d = Math.hypot(o.x - this._lp.x, o.z - this._lp.z); if (d < 40) this.stats.distance = (this.stats.distance || 0) + d; } this._lp = { x: o.x, z: o.z }; }
       this.vehicles.update(dt);
+      this.player.resyncSeat();                       // Spielfigur sitzt auf dem bereits bewegten Fahrzeug
       // Figuren (Spieler aktualisiert sich selbst)
       for (let i = this.characters.length - 1; i >= 0; i--) {
         const c = this.characters[i];
@@ -429,7 +473,8 @@ export class Game {
       this._housekeeping(dt);
       this.audio?.update(dt);
       this.radio?.update(dt);
-    }
+    } else this.audio?.updatePaused?.(real);   // im Menü laufen die Hintergrundgeräusche weiter
+    this.net?.update(real);                         // Mitspieler bewegen sich auch, während das eigene Menü offen ist
     this.player.updateCamera(this.paused ? 0 : dt);
     this.ui?.update(real);
     input.endFrame();
@@ -472,6 +517,16 @@ export class Game {
     if (this.freeCam) { const f = this.freeCam; cam.position.set(f.x, f.y, f.z); cam.rotation.set(f.pitch, f.yaw, 0, 'YXZ'); cam.updateMatrixWorld(); }
     this.atm.update(dt, cam.position, cam);
     this.sea.update(dt, cam);
+    // Pools in der Nähe: Loch im Gelände über dem Becken (die nächsten zuerst)
+    this._poolT = (this._poolT ?? 0) - dt;
+    if (this._poolT <= 0) {
+      this._poolT = 0.3;
+      const cx = cam.position.x, cz = cam.position.z, near = [];
+      for (const p of this.ctx.pools) { const d2 = (p.x - cx) ** 2 + (p.z - cz) ** 2; if (d2 < 240 * 240) near.push([d2, p]); }
+      near.sort((a, b) => a[0] - b[0]);
+      this.mats.setPools(near.map((e) => e[1]));
+    }
+    this.under?.update(dt, cam);
     this.mats.setNight(this.atm.night, this.atm.w.rain);
     this.props.setNight(this.atm.night);
     this.engine.renderer.toneMappingExposure = this.atm.exposure;
@@ -590,11 +645,15 @@ export class Game {
     const sc = this.atm.sun.shadow.camera; sc.left = -this.atm.shadowRange; sc.right = this.atm.shadowRange; sc.top = this.atm.shadowRange; sc.bottom = -this.atm.shadowRange; sc.updateProjectionMatrix();
     const sz = this.engine.q.shadow || 1024;
     if (this.atm.sun.shadow.mapSize.x !== sz) { this.atm.sun.shadow.mapSize.set(sz, sz); this.atm.sun.shadow.map?.dispose(); this.atm.sun.shadow.map = null; }
+    // Schatten aus (Optionen → Grafik oder Qualitätsstufe ohne Schatten): Sonne wirft keine Schatten, die Shader werden neu gebaut
+    this.atm.sun.castShadow = this.engine.shadowsOn;
     this.chunks.detailBuilder.density = this.engine.q.detail >= 1 ? 1 : this.engine.q.detail;
   }
 
   dispose() {
     this.stopped = true;
+    this.net?.dispose(); this.net = null;
+    this.under?.dispose?.();
     this.input.dispose();
     this.audio?.dispose?.();
     this.radio?.dispose?.();

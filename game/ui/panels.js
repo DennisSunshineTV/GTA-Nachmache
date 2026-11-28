@@ -356,7 +356,7 @@ export class Panels {
       }
       group('Besondere Orte', g.ctx.pois.filter((p) => ['harbor', 'airport', 'bossfinca', 'landmark', 'beach'].includes(p.type) && !p.id.includes('pier')).slice(0, 40).map((p) => chip(p.label, () => { g.teleport(p.x, p.z); this.close(); })));
     } else if (tab === 'vehicles') {
-      const groups = { 'Autos': ['sports', 'coupe', 'luxury', 'limo', 'suv', 'compact', 'taxi', 'police', 'van', 'pickup'], 'Zweiräder & Nutzfahrzeuge': ['moto', 'truck', 'bus', 'tractor', 'forklift', 'excavator'], 'Wasser & Luft': ['speedboat', 'yacht', 'jetski', 'plane', 'heli'] };
+      const groups = { 'Autos': ['sports', 'coupe', 'luxury', 'limo', 'suv', 'compact', 'taxi', 'police', 'van', 'econelo', 'pickup'], 'Zweiräder & Nutzfahrzeuge': ['moto', 'truck', 'bus', 'tractor', 'forklift', 'excavator'], 'Wasser & Luft': ['speedboat', 'yacht', 'jetski', 'plane', 'heli'] };
       for (const [name, keys] of Object.entries(groups)) group(name, keys.map((k) => chip(VEHICLE_TYPES[k].name, () => { g.adminSpawn(k); this.close(); })));
     } else if (tab === 'world') {
       group('Wetter', Object.keys(WEATHER_NAMES).map((k) => chip(WEATHER_NAMES[k], () => { g.atm.setWeather(k); g.weatherT = 900; })));

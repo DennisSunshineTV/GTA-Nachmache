@@ -20,6 +20,25 @@ import { Underwater } from './render/underwater.js';
 import { Multiplayer } from './net/multiplayer.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
+const frame = () => new Promise((r) => { requestAnimationFrame(() => r()); setTimeout(r, 120); });
+
+async function warmUp(game, engine, progress) {
+  const R = engine.renderer;
+  progress(0.95, 'Grafik vorbereiten …'); await tick();
+  game.update(1 / 60);                                   // Figuren und Fahrzeuge bekommen ihre Modelle
+  const seen = new Set();
+  engine.scene.traverse((o) => {
+    const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+    for (const m of ms) for (const k in m) { const t = m[k]; if (t && t.isTexture && !seen.has(t)) { seen.add(t); try { R.initTexture(t); } catch { /* z. B. Render-Ziele */ } } }
+  });
+  progress(0.96, 'Shader übersetzen …'); await tick();
+  try { await Promise.race([R.compileAsync(engine.scene, engine.camera), new Promise((r) => setTimeout(r, 20000))]); } catch (e) { console.warn('Shader-Vorbereitung:', e); }
+  for (let i = 0; i < 10; i++) {
+    game.update(1 / 60); game.render(1 / 60);
+    progress(0.97 + i * 0.0025, 'Letzter Feinschliff …');
+    await frame();
+  }
+}
 
 export async function startGame(container, opts = {}) {
   const progress = opts.onProgress || (() => {});
@@ -67,6 +86,8 @@ export async function startGame(container, opts = {}) {
 
   progress(0.94, 'Figuren und Fahrzeuge …'); await tick();
   game.createPlayer(opts.who || 'jason', start);
+  // Neues Spiel: ohne Waffe – die Pistole liegt im Tresor des Strandhauses. Im Multiplayer (Start am Hafen) und ohne Haus gibt es sie sofort
+  if (opts.mp || !ctx.home) { game.player.giveWeapon('pistol', 60); game.player.setWeapon('pistol'); }
   game.player.money = game.money;
   game.ui = new UI(game, container);
   const set = loadSettings();
@@ -88,6 +109,11 @@ export async function startGame(container, opts = {}) {
   for (let i = 0; i < game.traffic.target; i++) game.traffic.spawnCar(start.x, start.z, 40, 260);
   for (let i = 0; i < game.traffic.targetParked; i++) game.traffic.spawnParked(start.x, start.z);
   for (let i = 0; i < game.peds.target; i++) game.peds.spawnNear(start.x, start.z, 12, 150);
+  game.animals?.populate(start.x, start.z);
+
+  // Kein Ruckeln nach dem Start: Shader übersetzen, Texturen hochladen und einige Bilder vorab zeichnen – alles noch
+  // unter dem Ladebildschirm (sonst übersetzt der Grafiktreiber die Shader erst beim ersten sichtbaren Bild)
+  await warmUp(game, engine, progress);
 
   // Schleife
   let last = performance.now(), frames = 0, acc = 0;
@@ -109,6 +135,7 @@ export async function startGame(container, opts = {}) {
   progress(1, 'Los geht’s!');
   game.start();
   if (!opts.noMissions && !opts.mp) game.missions.begin();
+  if (!opts.mp && ctx.home && !game.owned.safeTaken && !game.player.weapons.pistol) setTimeout(() => game.ui?.notify('Deine Pistole liegt im Tresor im Schlafzimmer – öffne ihn mit F', 'info', 8000), 6000);
   // Multiplayer: Verbindung zum Server (Mitspieler, Serverzeit)
   if (opts.mp) { game.net = new Multiplayer(game, opts.mp); game.ui.notify(`${game.net.serverName}: ${game.net.countText()} Spielern`, 'info', 5000); }
   return game;

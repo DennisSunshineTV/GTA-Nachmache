@@ -177,6 +177,7 @@ const MISSIONS = [
       S.dialog([
         ['{P} (Anruf)', 'Endlich! Wir sind auf Mallorca – ohne Geld, aber mit Plänen. Marco wartet im Hafen von Palma auf dich.'],
         ['{P} (Anruf)', 'Der Kleinwagen vor deiner Garage reicht dafür. Drück F in der Nähe eines Fahrzeugs, um einzusteigen.'],
+        ['{P} (Anruf)', 'Und nimm deine Pistole mit – sie liegt im Tresor neben dem Kleiderschrank im Schlafzimmer.'],
       ]),
       S.enterAny('Steige in ein Fahrzeug ({USE})'),
       S.goto(poi('palma.harbor', { snap: true }), 'Fahre zum Hafen von Palma', { radius: 12, inVehicle: true }),
@@ -209,6 +210,7 @@ const MISSIONS = [
         ['Marco', 'Die Joyería Oro in der Innenstadt. Teure Uhren, schlechte Alarmanlage.'],
         ['{P}', 'Ich warte im Fluchtwagen. Zieh deine Waffe und sei schnell.'],
       ]),
+      S.until((g) => ['pistol', 'smg', 'rifle', 'shotgun', 'sniper'].some((w) => g.player.weapons[w]), 'Besorge dir eine Schusswaffe', 'Die Pistole liegt im Tresor deines Strandhauses – oder kaufe eine im Waffenladen'),
       S.goto(poi('palma.jewelry'), 'Gehe zur Joyería Oro', { radius: 3.5, onFoot: true }),
       S.hold(poi('palma.jewelry'), 8, 'Raube den Juwelier aus: Waffe ziehen ({AIM}) und im Laden bleiben', { radius: 5, needAim: true, onStart: (m) => { m.g.police.crime('robbery', m.g.player, m.g.player.x, m.g.player.z, true); m.g.police.setWanted(2); m.g.ui.notify('Alarm! Die Polizei ist unterwegs', 'warn'); } }),
       S.reward(4000),

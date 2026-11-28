@@ -377,7 +377,6 @@
     <button type="button" data-act="start">Spiel starten</button>
     <button type="button" data-act="multi">Multiplayer</button>
     <button type="button" data-act="load">Speicherstand laden</button>
-    <button type="button" data-act="save">Speicherstand speichern</button>
     <button type="button" data-act="friends">Freundschaften</button>
     <button type="button" data-act="options">Optionen</button>
     <button type="button" data-act="quit">Spiel beenden</button>
@@ -972,39 +971,7 @@
       });
     }
 
-    // Speicherstand speichern (Startseite): den neuesten Spielstand in einen der 5 Speicherplätze sichern.
-    // Im Spiel speichert man über das Pause-Menü (Esc) oder in der Wohnung direkt in einen Platz.
-    async function saveFlow() {
-      if (!requireLogin()) return;
-      let slots = [];
-      try { slots = await fetchSlots(); } catch { toast('Die Speicherplätze sind auf dem Server noch nicht verfügbar.'); return; }
-      const newest = slots.reduce((a, s) => (!a || s.savedAt > a.savedAt ? s : a), null);
-      const by = new Map(slots.map((s) => [s.slot, s]));
-      modal('<h2>Speicherstand speichern</h2><p class="lead" id="sv-lead" style="margin:-6px 0 14px;opacity:.85"></p><div id="sl-list" style="display:grid;gap:8px"></div><div class="btns"><button id="m-x">Schließen</button></div>', (b) => {
-        const lead = b.querySelector('#sv-lead');
-        lead.textContent = newest
-          ? 'Sichere deinen neuesten Spielstand (' + slotTitle(newest.slot) + ', ' + new Date(newest.savedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) + ') in einem der 5 Speicherplätze. Im Spiel speicherst du über das Pause-Menü (Esc) oder in deiner Wohnung.'
-          : 'Noch kein Spielstand vorhanden – starte ein Spiel. Gespeichert wird im Spiel über das Pause-Menü (Esc) oder in deiner Wohnung; danach kannst du den Stand hier in einen der 5 Plätze sichern.';
-        const list = b.querySelector('#sl-list');
-        for (let n = 1; n <= SAVE_SLOTS; n++) {
-          const s = by.get(n);
-          let armed = false;
-          const btn = slotButton(slotTitle(n), s ? slotInfo(s) : 'Leer', newest ? async () => {
-            if (s && !armed && newest.slot !== n) { armed = true; btn.classList.add('arm'); btn.lastChild.textContent = 'Nochmal klicken, um Speicherplatz ' + n + ' zu überschreiben'; return; }
-            btn.disabled = true;
-            try {
-              const sv = await fetchSave(newest.slot);
-              if (!sv) throw new Error('Der Spielstand konnte nicht gelesen werden.');
-              await api('/api/save?slot=' + n, 'PUT', { save: sv.save });
-              toast('Gespeichert in Speicherplatz ' + n);
-              closeModal(); saveFlow();
-            } catch (e) { toast('Speichern fehlgeschlagen: ' + e.message); btn.disabled = false; }
-          } : null);
-          list.append(btn);
-        }
-        const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = closeModal;
-      });
-    }
+    // Gespeichert wird nur im Spiel (Pause-Menü bzw. in der Wohnung), nicht auf der Startseite.
 
     // Freundschaften: Mitglieder suchen und Anfragen schicken (assets/friends.js, auch im Pause-Menü), dazu die Kontakte aus den Missionen
     async function friendsFlow() {
@@ -1153,7 +1120,6 @@
         case 'start': startFlow(); break;
         case 'multi': multiFlow(); break;
         case 'load': loadFlow(); break;
-        case 'save': saveFlow(); break;
         case 'friends': friendsFlow(); break;
         case 'options': optionsFlow(); break;
         case 'quit': quitFlow(); break;

@@ -5,6 +5,8 @@ import { smoothstep } from '../util.js';
 import { makeRoadMaterial } from './roadshader.js';
 import * as HD from './hdtextures.js';
 
+const POOL_MAX = 32;   // so viele Pools um die Kamera bekommen ein Loch im Gelände
+
 export class Materials {
   constructor(signList) {
     this.tex = {};
@@ -39,16 +41,32 @@ export class Materials {
     this.road = makeRoadMaterial(roadAtlas);
     // Gelände: in der Nähe feine Gras- bzw. Kiesstruktur in Weltkoordinaten (wie am Straßenrand), großflächige Tönung
     const rt = this.road.userData.tex;
+    // Pools in der Nähe: dort hat das Gelände ein Loch in Beckenform (darunter liegt das Becken), siehe setPools
+    this.poolU = { uPoolP: { value: Array.from({ length: POOL_MAX }, () => new THREE.Vector4()) }, uPoolS: { value: Array.from({ length: POOL_MAX }, () => new THREE.Vector4()) }, uPoolN: { value: 0 } };
     this.terrain.onBeforeCompile = (sh) => {
-      Object.assign(sh.uniforms, { tGrass: { value: rt.grass }, tGrassN: { value: rt.grassN }, tGrav: { value: rt.grav }, tGravN: { value: rt.gravN }, tNoise: { value: rt.noise } });
+      Object.assign(sh.uniforms, { tGrass: { value: rt.grass }, tGrassN: { value: rt.grassN }, tGrav: { value: rt.grav }, tGravN: { value: rt.gravN }, tNoise: { value: rt.noise } }, this.poolU);
       sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
 varying vec3 vTW;`).replace('#include <fog_vertex>', `#include <fog_vertex>
 vTW = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>
 uniform sampler2D tGrass, tGrassN, tGrav, tGravN, tNoise;
+uniform vec4 uPoolP[${POOL_MAX}];
+uniform vec4 uPoolS[${POOL_MAX}];
+uniform int uPoolN;
 varying vec3 vTW;`)
         .replace('#include <color_fragment>', `#include <color_fragment>
+  // Schwimmbecken: Gelände über dem Becken weglassen (x,z,cos,sin / Halbbreite, Halbtiefe, Form, Inselradius)
+  for (int pi = 0; pi < ${POOL_MAX}; pi++) {
+    if (pi >= uPoolN) break;
+    vec2 pd = vTW.xz - uPoolP[pi].xy;
+    vec4 PS = uPoolS[pi];
+    if (dot(pd, pd) > (PS.x * PS.x + PS.y * PS.y) * 1.05 + 0.5) continue;
+    vec2 pl = vec2(uPoolP[pi].z * pd.x - uPoolP[pi].w * pd.y, uPoolP[pi].w * pd.x + uPoolP[pi].z * pd.y);
+    vec2 pq = abs(pl) / PS.xy;
+    float pv = PS.z < 0.5 ? pow(pq.x, 6.0) + pow(pq.y, 6.0) : dot(pq, pq);
+    if (pv < 0.995 && length(pl) >= PS.w) discard;
+  }
   float tFade = 1.0 - smoothstep(35.0, 120.0, length(vTW - cameraPosition));
   float tGreen = vColor.g / (vColor.r + vColor.g + vColor.b + 1e-4);
   float tG = smoothstep(0.4, 0.47, tGreen);
@@ -61,13 +79,24 @@ varying vec3 vTW;`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
 normal = normalize(normal + mat3(viewMatrix) * vec3(tN.x, 0.0, tN.y) * 0.55 * tFade);`);
     };
-    this.terrain.customProgramCacheKey = () => 'terrain-hd-v1';
+    this.terrain.customProgramCacheKey = () => 'terrain-hd-v2-pools';
 
     const sign = T.makeSignAtlas(signList);
     this.sign = new THREE.MeshStandardMaterial({ map: sign.map, emissiveMap: sign.emissive, emissive: new THREE.Color(1, 1, 1), emissiveIntensity: 0.5, roughness: 0.6, vertexColors: true });
 
     this.tex.pool = T.makePoolTexture();
-    this.pool = new THREE.MeshStandardMaterial({ map: this.tex.pool, color: 0xffffff, roughness: 0.08, metalness: 0.0, emissive: new THREE.Color(0.05, 0.4, 0.5), emissiveIntensity: 0.25, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
+    // Poolwasser: durchsichtig (Schwimmer und Beckenboden sichtbar, auch von unten), aus der Ferne deckend
+    this.pool = new THREE.MeshStandardMaterial({ map: this.tex.pool, color: 0xd8f4ff, roughness: 0.06, metalness: 0.0, emissive: new THREE.Color(0.05, 0.4, 0.5), emissiveIntensity: 0.25, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide });
+    this.pool.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vPW;').replace('#include <fog_vertex>', '#include <fog_vertex>\nvPW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vPW;').replace('#include <opaque_fragment>', `#include <opaque_fragment>
+  { float fr = pow(1.0 - clamp(abs(dot(normalize(vViewPosition), normal)), 0.0, 1.0), 3.0);
+    float far = smoothstep(140.0, 220.0, length(vPW - cameraPosition));
+    gl_FragColor.a = clamp(max(mix(gl_FragColor.a, 0.92, fr), far), 0.0, 1.0); }`);
+    };
+    this.pool.customProgramCacheKey = () => 'pool-water-v2';
+    // Becken (Wände und Boden): helle Fliesen mit Lichtmuster
+    this.poolBasin = new THREE.MeshStandardMaterial({ map: this.tex.pool, vertexColors: true, roughness: 0.32, metalness: 0.0 });
     this.poolRim = new THREE.MeshStandardMaterial({ color: 0xece6d8, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, vertexColors: true });
 
     this.tex.frond = T.makeFrondTexture();
@@ -86,22 +115,54 @@ normal = normalize(normal + mat3(viewMatrix) * vec3(tN.x, 0.0, tN.y) * 0.55 * tF
     // Einfamilienhäuser (render/housegeom.js): Texturen in Metern, Tönung über Vertexfarben
     const winAtlas = HD.makeWindowAtlas();
     const tm = (t, o = {}) => new THREE.MeshStandardMaterial({ map: t.map, normalMap: t.normal, normalScale: new THREE.Vector2(o.n ?? 0.8, o.n ?? 0.8), vertexColors: true, roughness: o.rough ?? 0.9, metalness: 0 });
+    const woodTex = HD.makeWood();
     this.house = {
       plaster: tm(HD.makePlaster(), { n: 0.45, rough: 0.94 }),
       roof: tm(HD.makeRoofTiles(), { n: 1.0, rough: 0.7 }),
-      wood: tm(HD.makeWood(), { n: 0.5, rough: 0.72 }),
+      wood: tm(woodTex, { n: 0.5, rough: 0.72 }),
       stone: tm(HD.makeStoneWall(), { n: 0.9, rough: 0.92 }),
       hedge: tm(HD.makeHedge(), { n: 1.0, rough: 0.95 }),
       glass: new THREE.MeshStandardMaterial({ map: winAtlas, vertexColors: true, roughness: 0.06, metalness: 0.35 }),
       glassLit: new THREE.MeshStandardMaterial({ map: winAtlas, vertexColors: true, roughness: 0.06, metalness: 0.3, emissive: new THREE.Color(1.0, 0.72, 0.45), emissiveMap: winAtlas, emissiveIntensity: 0 }),
       fence: new THREE.MeshStandardMaterial({ map: HD.makeFenceBars(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.45, metalness: 0.45 }),
     };
+    // ---- Strandhaus: dunkler Dielenboden (seidig), LED-Licht, Lichtschein, klares Glas, angestrahlte Blätter ----
+    this.deckWood = tm(woodTex, { n: 0.45, rough: 0.42 });
+    this.led = new THREE.MeshBasicMaterial({ vertexColors: true });
+    this.glow = new THREE.MeshBasicMaterial({ map: T.makeGlowTexture(), vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+    this.homeGlass = new THREE.MeshStandardMaterial({ color: 0x3c4c58, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.17, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 1.6 });
+    this.homeGlass.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `#include <opaque_fragment>
+  { float fr = pow(1.0 - clamp(abs(dot(normalize(vViewPosition), normal)), 0.0, 1.0), 3.0);
+    gl_FragColor.a = clamp(mix(gl_FragColor.a, 0.85, fr), 0.0, 1.0); }`);
+    };
+    this.homeGlass.customProgramCacheKey = () => 'home-glass-v1';
+    this.leafU = { uUp: { value: 0.1 } };
+    this.leaf = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, side: THREE.DoubleSide });
+    this.leaf.onBeforeCompile = (sh) => {
+      sh.uniforms.uUp = this.leafU.uUp;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vLeafT;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvLeafT = uv.y;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uUp;\nvarying float vLeafT;').replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+  totalEmissiveRadiance += diffuseColor.rgb * uUp * (1.0 - smoothstep(0.0, 0.95, vLeafT)) * vec3(2.6, 1.8, 0.5);`);
+    };
+    this.leaf.customProgramCacheKey = () => 'leaf-uplit-v1';
     this.prop = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
     this.propMetal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.6 });
     this.tex.glow = T.makeGlowTexture();
 
     this.windowLevel = 0;
     this.all = [terrain(this), ...Object.values(this.facade), this.roof, this.flat, this.road, this.sign, this.pool, this.frond, this.prop];
+  }
+
+  // Pools in der Nähe der Kamera an den Gelände-Shader geben (höchstens POOL_MAX, die nächsten zuerst)
+  setPools(list) {
+    const U = this.poolU, n = Math.min(POOL_MAX, list.length);
+    for (let i = 0; i < n; i++) {
+      const p = list[i];
+      U.uPoolP.value[i].set(p.x, p.z, Math.cos(p.rot), Math.sin(p.rot));
+      U.uPoolS.value[i].set(p.w / 2, p.d / 2, p.shape === 'rect' ? 0 : 1, p.island ? p.d * 0.19 : 0);
+    }
+    U.uPoolN.value = n;
   }
 
   // night: 0 (Tag) … 1 (Nacht)
@@ -112,6 +173,11 @@ normal = normalize(normal + mat3(viewMatrix) * vec3(tN.x, 0.0, tN.y) * 0.55 * tF
     this.sign.emissiveIntensity = 0.25 + w * 2.2;
     this.house.glassLit.emissiveIntensity = w * 1.5;
     this.pool.emissiveIntensity = 0.1 + w * 0.7;
+    // Strandhaus: LED und Lichtschein werden abends kräftig, tagsüber nur dezent
+    const eve = smoothstep(0.0, 0.45, night);
+    this.led.color.setScalar(1.35 + eve * 2.0);
+    this.glow.color.setScalar(0.16 + eve * 0.95);
+    this.leafU.uUp.value = 0.1 + eve * 0.8;
     // nasse Straßen
     this.road.roughness = 0.93 - rain * 0.55;
   }

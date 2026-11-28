@@ -18,6 +18,11 @@ export const SIGN_STYLES = {
   harbor: { bg: '#164a63', fg: '#ffffff', edge: '#ffffff', glow: 0.3 },
   port: { bg: '#0f2840', fg: '#8fe3ff', edge: '#8fe3ff', glow: 0.8 },
   beach: { bg: '#5a3b22', fg: '#f7e8c6', edge: '#d3a867', glow: 0.15 },
+  burger: { bg: '#c8102e', fg: '#ffd200', edge: '#ffd200', glow: 1.1 },
+  pizza: { bg: '#0b6b34', fg: '#ffffff', edge: '#e2242b', glow: 0.9 },
+  doner: { bg: '#7a1010', fg: '#ffd27a', edge: '#ffd27a', glow: 1.0 },
+  schnitzel: { bg: '#4a2a12', fg: '#f5e6c8', edge: '#d6a85a', glow: 0.7 },
+  pommes: { bg: '#ffcc00', fg: '#c8102e', edge: '#c8102e', glow: 1.0 },
 };
 
 export class SignList {

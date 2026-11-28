@@ -267,13 +267,14 @@ export class Combat {
     const falloff = W.pellets ? clamp(1.15 - bestT / 45, 0.2, 1) : W.id === 'pistol' ? clamp(1.2 - bestT / 150, 0.5, 1) : 1;
     if (kind === 'char') {
       const head = hy > target.y + 1.5;
-      target.hurt(W.dmg * falloff * (head ? 2.4 : 1), shooter, head);
+      // Der Spieler steckt Treffer besser weg: Schüsse kosten ihn nur halb so viel Gesundheit
+      target.hurt(W.dmg * falloff * (head ? 2.4 : 1) * (target.isPlayer ? 0.5 : 1), shooter, head);
       game.effects.impact(hx, hy, hz, 'flesh');
       if (head && !target.alive) game.onHeadshot?.(shooter, target);
     } else if (kind === 'veh') {
       target.damage(W.dmg * falloff * (W.pellets ? 1.1 : 1.3), shooter);
       game.effects.impact(hx, hy, hz, 'metal');
-      if (target.driver && target.driver.alive && Math.random() < 0.22) target.driver.hurt(W.dmg * falloff * 0.6, shooter);
+      if (target.driver && target.driver.alive && Math.random() < 0.22) target.driver.hurt(W.dmg * falloff * 0.6 * (target.driver.isPlayer ? 0.5 : 1), shooter);
       if (target.hp < target.maxHp * 0.25 && !target.burning && Math.random() < 0.08 * (W.pellets || 1)) { target.burning = 3; }
     } else if (kind === 'static' || kind === 'terrain') {
       game.effects.impact(hx, hy, hz, 'default');

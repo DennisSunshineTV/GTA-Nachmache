@@ -8,6 +8,10 @@ import { driveRail } from '../ai/rail.js';
 
 let NEXT_ID = 1;
 const BURN_TIME = 5;            // brennendes Fahrzeug explodiert nach 5 s
+const ACCEL_K = 0.37;           // Anteil der Typ-Beschleunigung: Autos beschleunigen gemächlich bis zur Höchstgeschwindigkeit
+const GRAV_V = 14;              // Schwerkraft für Fahrzeuge in der Luft (leichter als vorher: Sprünge sieht man gut)
+const HELI_LEVEL = 200 / 3.6;   // Hubschrauber: höchstens 200 km/h im Geradeausflug …
+const HELI_DIVE = 220 / 3.6;    // … und 220 km/h im Sinkflug
 const FUEL_RANGE = 15000;       // Meter mit einer Tankfüllung
 const FUEL_IDLE = 2400;         // Sekunden Leerlauf bis leer
 const _contacts = [];
@@ -128,6 +132,8 @@ export class Vehicle {
     this.grounded = false;
     this.wreckT = 0;
     this.refs.bodyMesh.material = this.game.wreckMat;
+    if (this.refs.cabinMesh) this.refs.cabinMesh.material = this.game.wreckMat;
+    this.refs.glassMesh.visible = false;          // Scheiben sind zersprungen
   }
 
   // ---------- Physik ----------
@@ -174,7 +180,8 @@ export class Vehicle {
     const wet = this.game.atm ? this.game.atm.w.rain : 0;
     const gx = this.x, gz = this.z;
     const ground = physics.groundHeight(gx, gz);
-    const inWater = ground < -0.55;
+    const pool = physics.poolAt(gx, gz);                     // im Schwimmbecken wie im Meer: bremsen, Schaden
+    const inWater = ground < -0.55 || (!!pool && ground < physics.poolLevel(pool) - 0.55);
     if (inWater && this.grounded) {
       this.submerged += dt;
       vLong *= Math.exp(-1.8 * dt); vLat *= Math.exp(-3 * dt);
@@ -182,25 +189,27 @@ export class Vehicle {
       if (this.submerged > 1.2 && this.hp > 0 && this.owner !== 'mission') this.damage(dt * 260);
     } else this.submerged = Math.max(0, this.submerged - dt);
     const maxS = T.maxSpeed * (this.cls === 'bike' ? 1 : 1);
-    // Antrieb (mit leerem Tank kein Gas)
-    const t = this.usesFuel && this.fuel <= 0 && this.driver && this.driver.isPlayer ? Math.min(0, ctl.throttle) * 0.3 : ctl.throttle;
+    // Antrieb (mit leerem Tank kein Gas). Das Gas baut sich beim Drücken von W über eine halbe Sekunde auf, und die Kraft
+    // lässt zur Höchstgeschwindigkeit hin nach: Die Autos beschleunigen spürbar langsamer, erreichen aber ihr Spitzentempo.
+    const t0 = this.usesFuel && this.fuel <= 0 && this.driver && this.driver.isPlayer ? Math.min(0, ctl.throttle) * 0.3 : ctl.throttle;
+    this.thr = (this.thr ?? 0) + (t0 - (this.thr ?? 0)) * (1 - Math.exp(-(Math.abs(t0) > Math.abs(this.thr ?? 0) ? 2.4 : 7) * dt));
+    const t = Math.abs(t0) < 0.02 ? 0 : this.thr;
     let a = 0;
     const brakeAcc = T.brake;
-    if (t > 0.02) {
-      if (vLong < -0.6) a = brakeAcc * t;
-      else { const k = clamp(vLong / maxS, 0, 1); a = T.accel * t * (1 - k * k * k); }
-    } else if (t < -0.02) {
-      if (vLong > 0.6) a = -brakeAcc * -t;
-      else { const k = clamp(-vLong / (maxS * 0.3), 0, 1); a = T.accel * 0.7 * t * (1 - k * k); }
-    }
+    const ACC = T.accel * ACCEL_K;
+    // Bremsen (Gegengas) wirkt sofort, nur das Beschleunigen baut sich auf
+    if (t0 > 0.02 && vLong < -0.6) a = brakeAcc * t0;
+    else if (t0 < -0.02 && vLong > 0.6) a = brakeAcc * t0;
+    else if (t > 0.02) { const k = clamp(vLong / maxS, 0, 1); a = ACC * t * (1 - k * k); }
+    else if (t < -0.02) { const k = clamp(-vLong / (maxS * 0.3), 0, 1); a = ACC * 0.8 * t * (1 - k * k); }
     if (ctl.brake > 0.02) {
       const bk = brakeAcc * ctl.brake * Math.sign(vLong);
       const nv = vLong - bk * dt;
       vLong = Math.sign(nv) !== Math.sign(vLong) ? 0 : nv;
     }
-    // Rollreibung + Luftwiderstand
-    const drag = 0.12 + (Math.abs(vLong) * 0.018) * (1 + 0.0);
-    a -= vLong * drag * (Math.abs(t) > 0.02 ? 0.6 : 1.0);
+    // Rollreibung + Luftwiderstand: mit Gas nur leicht (das Spitzentempo begrenzt die Antriebskurve), ohne Gas rollt der Wagen aus
+    if (Math.abs(t) > 0.02) a -= vLong * 0.02;
+    else a -= vLong * (0.12 + Math.abs(vLong) * 0.014);
     if (!this.grounded) a = 0;
     // Steigung bremst/beschleunigt
     const hF = physics.groundHeight(this.x + fx * 1.5, this.z + fz * 1.5), hB = physics.groundHeight(this.x - fx * 1.5, this.z - fz * 1.5);
@@ -285,26 +294,49 @@ export class Vehicle {
     const rideH = this.dims.wheelR * 0.18;
     const targetPitch = Math.atan2(gF - gB, 2 * L);
     const targetRoll = Math.atan2(gL - gR, 2 * Wd);
+    // Sprünge: Wer schnell bergauf fährt, hebt an der Kuppe ab – dort, wo die Straße oben flacher wird oder wieder abfällt,
+    // während der Wagen noch nach oben unterwegs ist. Beim Bergabfahren bleibt er immer am Boden (kein Schaden).
+    const vL = this.vx * fx + this.vz * fz;
     if (this.grounded) {
       const ny = g + rideH;
-      const dy = (ny - this.y) / Math.max(dt, 1e-3);
-      if (dy < -9 && this.speed > 10 && !this.rail) { this.grounded = false; this.vy = dy * 0.6; this.airborne = 0; }
-      else { this.y += (ny - this.y) * Math.min(1, dt * 22); this.vy = 0; }
+      this.settleT = Math.max(0, (this.settleT || 0) - dt);
+      let lift = false;
+      if (!this.rail && Math.abs(vL) > 17 && this.settleT <= 0 && this.cls !== 'tank') {
+        // Kuppe: Der Wagen fährt spürbar bergauf und voraus wird die Straße deutlich flacher oder fällt ab → er springt
+        const sg = Math.sign(vL), spd = Math.abs(vL);
+        const gAt = (d) => physics.groundHeight(this.x + fx * d * sg, this.z + fz * d * sg);
+        const h0 = gAt(0), up = (h0 - gAt(-8)) / 8;
+        if (up > 0.045) {
+          const ahead = (gAt(15) - gAt(3)) / 12;
+          if (up - ahead > 0.055 && ahead < 0.06) {
+            lift = true; this.grounded = false; this.airborne = 0;
+            this.vy = Math.min(10, Math.max(up, 0.08) * spd * 1.25 + 0.9);
+            this.y = Math.max(this.y, ny);
+          }
+        }
+      }
+      if (!lift) { this.y += (ny - this.y) * Math.min(1, dt * 22); this.vy = 0; }
       this.pitch += (targetPitch - this.pitch) * Math.min(1, dt * 12);
       this.roll += (targetRoll - this.roll) * Math.min(1, dt * 12);
     } else {
-      this.vy -= 24 * dt;
+      this.vy -= GRAV_V * dt;
       this.y += this.vy * dt;
       this.airborne += dt;
-      this.pitch += (-this.vy * 0.01 - this.pitch) * Math.min(1, dt * 1.2);
-      if (this.y <= g + rideH) {
+      this.pitch += (-this.vy * 0.012 - this.pitch) * Math.min(1, dt * 1.6);
+      this.roll *= Math.exp(-2 * dt);
+      // Aufprall gegenüber dem Boden: Landet man auf einer abfallenden Straße, fällt der Boden mit – das ist kein harter Aufprall
+      const groundVy = Math.tan(targetPitch) * vL;
+      if (this.y <= g + rideH && this.airborne < 0.25 && this.vy > groundVy) this.y = g + rideH;   // gerade abgehoben, Boden steigt noch
+      else if (this.y <= g + rideH) {
         this.y = g + rideH;
-        const impact = -this.vy;
+        const impact = Math.max(0, groundVy - this.vy);
         this.grounded = true;
-        if (impact > 7) this.damage((impact - 7) * 25);
-        if (impact > 5) this.game.effects.dust(this.x, this.y, this.z, 6);
+        this.settleT = 0.8;
+        if (impact > 12) this.damage((impact - 12) * 14);
+        if (impact > 4 || this.airborne > 0.35) this.game.effects.dust(this.x, this.y, this.z, 6);
+        if (this.driver?.isPlayer && this.airborne > 0.35) this.game.effects.addShake(Math.min(0.5, impact / 30));
         this.vy = 0;
-        this.suspV = -impact * 0.04;
+        this.suspV = -impact * 0.05;
       }
     }
     // Federung (Nicken beim Bremsen/Beschleunigen)
@@ -480,12 +512,34 @@ export class Vehicle {
     this.yawRate += ((-ctl.yaw * 1.4) - this.yawRate) * Math.min(1, dt * 2.5);
     this.h += this.yawRate * dt;
     const fx = Math.sin(this.h), fz = Math.cos(this.h), lx = Math.cos(this.h), lz = -Math.sin(this.h);
-    const tvx = (fx * ctl.pitch + lx * ctl.roll * -1) * T.maxSpeed * 0.7 * this.heliRotor, tvz = (fz * ctl.pitch + lz * ctl.roll * -1) * T.maxSpeed * 0.7 * this.heliRotor;
-    this.vx += (tvx - this.vx) * Math.min(1, dt * 0.9); this.vz += (tvz - this.vz) * Math.min(1, dt * 0.9);
+    // Geschwindigkeit längs (vf) und quer (vl): Nase runter beschleunigt bis 200 km/h, im Sinkflug bis 220 km/h;
+    // Nase hoch bremst (dabei steigt der Hubschrauber leicht), erst im Schwebeflug geht es langsam rückwärts
+    let vf = this.vx * fx + this.vz * fz, vl = this.vx * lx + this.vz * lz;
+    const p = ctl.pitch * this.heliRotor;
+    const sink = clamp((-this.vy - 1) / 4, 0, 1);                  // 0 = Geradeausflug, 1 = deutlicher Sinkflug
+    const vMax = HELI_LEVEL + (HELI_DIVE - HELI_LEVEL) * sink;
+    if (p > 0.05) {
+      const want = vMax * Math.min(1, p);
+      if (vf < want) vf = Math.min(want, vf + (8.5 * p * Math.max(0, 1 - (Math.max(0, vf) / vMax) ** 2) + 0.9 + 3 * sink) * dt);
+      else vf += (want - vf) * Math.min(1, dt * 0.45);
+    } else if (p < -0.05) {
+      if (vf > 3) {
+        const brake = (5 + 9 * -p) * dt;
+        vf = Math.max(0, vf - brake);
+        this.vy += -p * clamp(vf / HELI_LEVEL, 0, 1) * 7 * dt;     // Nase hoch: Fahrt wird ein wenig in Höhe umgesetzt
+      } else vf += (12 * p - vf) * Math.min(1, dt * 0.8);
+    } else {
+      vf -= vf * Math.min(1, dt * 0.35);                            // ohne Eingabe langsam ausgleiten
+      if (vf > vMax) vf += (vMax - vf) * Math.min(1, dt * 0.45);
+    }
+    vl += (-ctl.roll * 18 * this.heliRotor - vl) * Math.min(1, dt * 1.0);
+    this.vx = fx * vf + lx * vl; this.vz = fz * vf + lz * vl;
     this.x += this.vx * dt; this.z += this.vz * dt; this.y += this.vy * dt;
     const g2 = physics.groundHeight(this.x, this.z);
     if (this.y < g2 + 0.9) { if (this.vy < -7) this.damage((-this.vy - 5) * 80); this.y = g2 + 0.9; this.vy = Math.max(0, this.vy); this.vx *= 0.9; this.vz *= 0.9; }
-    this.pitch += ((ctl.pitch * 0.25) - this.pitch) * Math.min(1, dt * 3);
+    // Neigung: vorwärts = Nase runter (bei hoher Fahrt etwas mehr), ziehen = Nase hoch
+    const nose = -(ctl.pitch * 0.24 + clamp((this.vx * fx + this.vz * fz) / HELI_LEVEL, -0.3, 1) * 0.07) * this.heliRotor;
+    this.pitch += (nose - this.pitch) * Math.min(1, dt * 3);
     this.roll += ((ctl.roll * 0.25) - this.roll) * Math.min(1, dt * 3);
     this.speed = Math.hypot(this.vx, this.vz);
     this.grounded = this.y < g2 + 1.2;
@@ -518,11 +572,16 @@ export class Vehicle {
     g.rotation.y = this.h;
     g.rotation.x = -this.pitch + (this.cls === 'car' ? this.suspY * 0.2 : 0);
     g.rotation.z = roll;
-    // Räder
+    // Räder: Die Felgen drehen sich mit. Pro Bild höchstens knapp eine halbe Speichenteilung weiter, sonst scheint
+    // das Rad bei hohem Tempo stillzustehen oder rückwärts zu laufen (Stroboskop-Effekt)
     const sv = this.steerVisual ?? this.steerAngle;
+    const cap = (0.42 * Math.PI * 2) / (this.refs.wheelSym || 5);
     for (const w of this.refs.wheels) {
       w.pivot.rotation.y = w.steer ? (this.T.rearSteer ? -sv : sv) : 0;
-      w.mesh.rotation.x = w.spin;
+      const d = w.spin - (w.last ?? w.spin);
+      w.last = w.spin;
+      w.vis = ((w.vis ?? 0) + Math.max(-cap, Math.min(cap, d))) % (Math.PI * 2);
+      w.mesh.rotation.x = w.vis;
     }
     // Lichter
     const night = this.game.atm ? this.game.atm.night : 0;

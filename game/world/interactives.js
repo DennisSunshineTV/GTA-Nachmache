@@ -47,7 +47,7 @@ export class Markers {
     for (const m of this.list) {
       const d = Math.hypot(m.x - p.x, m.z - p.z);
       const show = m.active && d < 650;
-      m.beam.visible = m.ring.visible = show && !m.invisible;   // unsichtbare Marker: nur Interaktion (z. B. das Bett)
+      m.beam.visible = m.ring.visible = show && !m.invisible && !g.cineCam;   // unsichtbare Marker: nur Interaktion (z. B. das Bett); in Filmszenen ausgeblendet
       if (!show) continue;
       m.ring.scale.setScalar(m.radius * pulse);
       m.beam.material.opacity = 0.2 + 0.08 * Math.sin(this.time * 2.2 + m.x);

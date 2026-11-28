@@ -8,12 +8,13 @@ const pickW = (rnd, table) => { let t = 0; for (const [, w] of table) t += w; le
 
 const TABLES = {
   highway: [['compact', 0.16], ['sports', 0.12], ['luxury', 0.1], ['suv', 0.14], ['van', 0.12], ['truck', 0.14], ['coupe', 0.08], ['pickup', 0.08], ['taxi', 0.03], ['bus', 0.03]],
-  urban: [['compact', 0.22], ['taxi', 0.12], ['suv', 0.1], ['luxury', 0.08], ['sports', 0.07], ['coupe', 0.08], ['van', 0.1], ['moto', 0.1], ['pickup', 0.04], ['bus', 0.05], ['truck', 0.04]],
-  avenue: [['compact', 0.18], ['taxi', 0.14], ['suv', 0.1], ['luxury', 0.1], ['sports', 0.08], ['coupe', 0.07], ['van', 0.08], ['moto', 0.08], ['bus', 0.12], ['truck', 0.05]],
+  urban: [['compact', 0.22], ['taxi', 0.12], ['suv', 0.1], ['luxury', 0.08], ['sports', 0.07], ['coupe', 0.08], ['van', 0.07], ['econelo', 0.05], ['moto', 0.1], ['pickup', 0.04], ['bus', 0.08], ['truck', 0.04]],
+  avenue: [['compact', 0.18], ['taxi', 0.14], ['suv', 0.1], ['luxury', 0.1], ['sports', 0.08], ['coupe', 0.07], ['van', 0.08], ['econelo', 0.03], ['moto', 0.08], ['bus', 0.12], ['truck', 0.05]],
   rural: [['compact', 0.2], ['suv', 0.16], ['pickup', 0.14], ['truck', 0.08], ['moto', 0.1], ['van', 0.1], ['tractor', 0.1], ['coupe', 0.06], ['sports', 0.06]],
   scenic: [['sports', 0.2], ['moto', 0.2], ['luxury', 0.12], ['coupe', 0.1], ['suv', 0.14], ['compact', 0.14], ['pickup', 0.06], ['bus', 0.04]],
 };
-const PARK_TYPES = [['compact', 0.3], ['suv', 0.16], ['sports', 0.1], ['luxury', 0.1], ['coupe', 0.1], ['van', 0.1], ['pickup', 0.05], ['taxi', 0.05], ['moto', 0.04]];
+const LOT_TYPES = [['compact', 0.3], ['suv', 0.18], ['sports', 0.07], ['luxury', 0.09], ['coupe', 0.1], ['van', 0.08], ['pickup', 0.07], ['taxi', 0.03], ['econelo', 0.08]];
+const PARK_TYPES = [['compact', 0.3], ['suv', 0.16], ['sports', 0.1], ['luxury', 0.1], ['coupe', 0.1], ['van', 0.07], ['econelo', 0.05], ['pickup', 0.05], ['taxi', 0.05], ['moto', 0.04]];
 
 export class TrafficManager {
   constructor(game) {
@@ -28,6 +29,7 @@ export class TrafficManager {
     this._tmp = {};
     this._tmp2 = {};
     this.rnd = Math.random;
+    this.lotCars = []; this.lotT = 0;
   }
 
   roadKindGroup(r) { return r.kind === 'highway' ? 'highway' : r.kind === 'avenue' ? 'avenue' : URBAN.has(r.kind) ? 'urban' : r.kind === 'scenic' ? 'scenic' : 'rural'; }
@@ -72,9 +74,11 @@ export class TrafficManager {
     drv.noHuman = true; drv.state = 'vehicle'; drv.vehicle = v; drv.seat = 0; drv.isDriver = true;
     v.driver = drv; v.engineOn = true;
     g.addCharacter(drv);
-    const limit = r.speed * (0.8 + Math.random() * 0.25) * (type === 'bus' || type === 'truck' ? 0.85 : type === 'sports' ? 1.1 : 1);
+    // nie schneller als das Fahrzeug kann (Econelo: 45 km/h)
+    const limit = Math.min(v.T.maxSpeed * 0.95, r.speed * (0.8 + Math.random() * 0.25) * (type === 'bus' || type === 'truck' ? 0.85 : type === 'sports' ? 1.1 : 1));
     v.ai = { kind: 'traffic', limit, panic: 0, moving: true, blocked: 0, ghost: 0, pass: 0, loose: 0, group: grp, police };
     v.rail = newRail(r, fwd, s, lanes, limit * 0.5);
+    if (type === 'bus') g.buses?.onSpawn(v);           // Linienbus mit Fahrgästen
     v.speed = limit * 0.5; v.vx = Math.sin(v.h) * limit * 0.5; v.vz = Math.cos(v.h) * limit * 0.5;
     this.cars.push(v);
     return v;
@@ -129,6 +133,7 @@ export class TrafficManager {
       this.parkT = 0.6;
       if (this.parked.length < this.targetParked) this.spawnParked(px, pz);
     }
+    this._lots(dt, px, pz);
     // KI + Entfernen
     for (let i = this.cars.length - 1; i >= 0; i--) {
       const v = this.cars[i];
@@ -148,8 +153,38 @@ export class TrafficManager {
     }
   }
 
+  // Parkplätze: in der Nähe des Spielers parken Autos in gut der Hälfte der Buchten; weit weg wird geräumt
+  _lots(dt, px, pz) {
+    this.lotT -= dt;
+    if (this.lotT > 0) return;
+    this.lotT = 1;
+    const g = this.game;
+    for (const lot of g.ctx.parkingLots || []) {
+      const d = Math.hypot(lot.x - px, lot.z - pz);
+      if (!lot.filled && d < 220 && d > 50) {
+        lot.filled = true;
+        for (const b of lot.bays) {
+          if (Math.random() > 0.55) continue;
+          if (g.vehicles.list.some((v) => Math.abs(v.x - b.x) < 3 && Math.abs(v.z - b.z) < 3)) continue;
+          const v = g.vehicles.spawn(pickW(Math.random, LOT_TYPES), b.x, b.z, b.h + (Math.random() - 0.5) * 0.05, { owner: 'parked', paint: Math.floor(Math.random() * 12) });
+          v.lotId = lot.id;
+          this.lotCars.push(v);
+        }
+      } else if (lot.filled && d > 340) {
+        lot.filled = false;
+        for (let i = this.lotCars.length - 1; i >= 0; i--) {
+          const v = this.lotCars[i];
+          if (v.lotId !== lot.id) continue;
+          this.lotCars.splice(i, 1);
+          if (v.owner === 'parked' && !v.driver && v.alive) g.vehicles.remove(v);
+        }
+      }
+    }
+  }
+
   _remove(v) {
     if (v.driver && v.driver.noHuman) { this.game.removeCharacter(v.driver); }
+    for (const p of [...v.passengers]) if (!p.isPlayer) this.game.removeCharacter(p);   // Fahrgäste (Bus) verschwinden mit
     this.game.vehicles.remove(v);
   }
 
@@ -157,16 +192,31 @@ export class TrafficManager {
     const net = this.game.ctx.net, a = v.ai, ctl = v.ctl, r = v.rail;
     if (!r) { this._offRoad(v, dt); return; }
     a.loose = 0;
+    a.redWait = false;
     plan(net, r, (rail) => this._chooseNext(rail));
     // Zielgeschwindigkeit
     const long = v.type === 'bus' || v.type === 'truck';
     let limit = Math.min(a.limit * (a.panic > 0 ? 1.5 : 1), curveLimit(net, r, v.T.brake) * (long ? 0.8 : 1));
     // Hindernisse entlang der Spur (beim Vorbeifahren zählt das umfahrene Fahrzeug nicht)
     a.ghost = Math.max(0, a.ghost - dt); a.pass = Math.max(0, a.pass - dt);
+    // Ampel: bei Rot und Rot-Gelb an der Haltelinie warten, bei Gelb nur, wenn das Anhalten bequem reicht.
+    // Polizei mit Blaulicht und flüchtende Fahrer fahren durch.
+    const lights = this.game.lights;
+    if (!r.curve && lights && !(a.panic > 0)) {
+      const ls = lights.stateFor(r.road, r.fwd ? 'b' : 'a');
+      if (ls && ls.state !== 'g') {
+        const dist = r.road.len - ls.arm.stopFromNode - r.s - v.hl;
+        const v0 = Math.max(0, r.speed);
+        if (dist > -0.8 && (ls.state !== 'y' || (v0 * v0) / 7 < dist)) { limit = Math.min(limit, dist < 0.4 ? 0 : Math.sqrt(5.2 * dist)); a.redWait = true; }
+      }
+    }
+    if (v.busSeats && this.game.buses) limit = this.game.buses.drive(v, r, limit, dt);   // Linienbus: an Haltestellen halten
     const block = this.blocker(v, 7 + Math.max(0, r.speed) * 1.4, a.ghost > 0, a.pass > 0 ? a.passing : null);
     if (block) limit = block.gap < 2 ? 0 : Math.min(limit, (block.gap - 1.5) * 1.1);
+    // in der Schlange vor einer roten Ampel: geduldig warten (nicht durchmogeln, nicht verschwinden)
+    if (block && block.vehicle && block.vehicle.ai?.redWait) { a.redWait = true; a.blocked = 0; a.waited = 0; }
     // Blockade lösen: unter geführten Fahrzeugen klärt die Nummer die Vorfahrt, an stehenden Hindernissen wird vorbeigefahren
-    a.blocked = block && Math.abs(r.speed) < 0.6 ? a.blocked + dt : Math.max(0, a.blocked - dt * 2);
+    a.blocked = block && Math.abs(r.speed) < 0.6 && !a.redWait ? a.blocked + dt : Math.max(0, a.blocked - dt * 2);
     if (block && a.blocked > 4) {
       const o = block.vehicle;
       if (o && o.rail) { if (v.id < o.id || a.blocked > 10) { a.ghost = 3; a.blocked = 0; } }
@@ -180,7 +230,7 @@ export class TrafficManager {
       }
     }
     // Hoffnungslos festgefahren und weit weg vom Spieler: Das Fahrzeug verschwindet, damit kein Dauerstau bleibt
-    a.waited = block && Math.abs(r.speed) < 0.6 ? (a.waited || 0) + dt : Math.abs(r.speed) > 2 ? 0 : a.waited || 0;
+    a.waited = a.redWait ? 0 : block && Math.abs(r.speed) < 0.6 ? (a.waited || 0) + dt : Math.abs(r.speed) > 2 ? 0 : a.waited || 0;
     if (a.waited > 30 && Math.hypot(v.x - this.game.player.x, v.z - this.game.player.z) > 70) a.gone = true;
     a.panic = Math.max(0, a.panic - dt);
     r.offTarget = a.panic > 0 ? r.lane * 0.4 : r.lane;

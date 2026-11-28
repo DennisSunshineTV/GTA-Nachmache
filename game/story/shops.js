@@ -11,7 +11,7 @@ const PROPERTIES = [
   { id: 'marina', name: 'Yacht-Charter Palma', poi: 'palma.pier3', price: 900000, income: 2900 },
   { id: 'finca', name: 'Finca in Alcúdia', poi: 'alcudia.center', price: 1500000, income: 4600 },
 ];
-const SALE_CARS = ['compact', 'coupe', 'suv', 'pickup', 'van', 'luxury', 'sports', 'moto', 'limo', 'speedboat', 'jetski', 'plane', 'yacht'];
+const SALE_CARS = ['compact', 'coupe', 'suv', 'pickup', 'van', 'econelo', 'luxury', 'sports', 'moto', 'limo', 'speedboat', 'jetski', 'plane', 'yacht'];
 
 export class Shops {
   constructor(game) {
@@ -42,6 +42,9 @@ export class Shops {
       // Das Bett selbst: F → Aufwachzeit wählen (unsichtbarer Marker, man steht neben dem Bett)
       const bed = g.ctx.home.bed;
       if (bed) this.markers.push(M.add({ x: bed.x, z: bed.z, radius: 1, height: 1, invisible: true, hint: 'Schlafen', onInteract: () => g.ui.panels.sleepMenu(), interactRadius: 1.95 }));
+      // Tresor neben dem Kleiderschrank: Hier liegt zu Beginn die Pistole
+      const safe = g.ctx.home.safe;
+      if (safe) this.markers.push(M.add({ x: safe.x, z: safe.z, radius: 0.6, height: 1, invisible: true, hint: 'Tresor öffnen', onInteract: () => g.home.openSafe(), interactRadius: 1.15 }));
     } else {
       const sp = g.startPosition(); const hp = freeSpot(g.ctx, sp.x + 14, sp.z + 10, 3);
       this.home = add(hp.x, hp.z, 'Wohnung: Speichern & Garage', [0.4, 1, 0.5], () => this.apartment(), blip);

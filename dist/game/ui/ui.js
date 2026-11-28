@@ -7,6 +7,20 @@ import { Panels } from './panels.js';
 import { PadUI, PAD_CSS } from './padui.js';
 import * as THREE from 'three';
 
+// Waffensymbole für die Anzeige unten rechts (Silhouetten im Raster 64 × 32, Mündung nach rechts)
+const DK = '#0b0f17';
+const WEAPON_ICONS = {
+  fists: `<path d="M18 14.5c0-2.5 2-4.5 4.5-4.5.9 0 1.8.3 2.5.8.7-1.6 2.3-2.8 4.2-2.8 1.6 0 3 .8 3.8 2.1.8-1.3 2.2-2.1 3.8-2.1 2.2 0 4 1.5 4.4 3.5.6-.3 1.3-.5 2-.5 2.5 0 4.5 2 4.5 4.5v6.3c0 5.3-4.3 8.7-9.6 8.7h-9.3C24.2 30.5 18 26 18 19.8z"/><path d="M29.2 10.5v7.2M36.8 10.5v7.2M43.2 13v6.2M20 21.5c5.2-1.6 10.4-1.4 15 .6" fill="none" stroke="${DK}" stroke-width="1.7" stroke-linecap="round"/>`,
+  bat: `<path d="M8.5 29.8 6 27.3l3.5-3.6 27.3-17c4.4-2.7 10.2-4.8 15.4-4.6 1.9 0 3 1.3 2.6 3.1-.4 1.7-1.9 2.4-3.8 2.4-4.8.2-10.1 2.6-14 5.4L11.6 27.7z"/><circle cx="6.8" cy="28.6" r="2.6"/>`,
+  pistol: `<path d="M9 9h42.5l1.5 1.5V15H45v2.5H33.5c-.3 3-2.4 5.2-5.6 5.2h-1.2L24 29H12.5l3.6-14H9z"/><path d="M27.4 17.6h3.9c-.2 1.8-1.4 3-3.3 3z" fill="${DK}"/><path d="M13 11.2h31" stroke="${DK}" stroke-width="1.2" opacity=".55"/>`,
+  smg: `<path d="M3 11.5h9V13h5v-3h30v2h4v-1h7v3.5h-7v1.5h-4v2H38.5V30h-5.5V18H29l-2 8.5h-5.5l2-8.5H17v-2.5h-5V17H3z"/><path d="M19 12.4h25" stroke="${DK}" stroke-width="1.2" opacity=".55"/>`,
+  shotgun: `<path d="M1.5 15.5 15 10.5h47v3H56v3.5H45v1.5h-9v-1.5h-4.5V19h-5.5l-2.2 3.5h-5.5l1.2-4.5-3.5.2L2.5 21.5z"/><path d="M36.5 14.2v4M40.5 14.2v4" stroke="${DK}" stroke-width="1.2" opacity=".6"/>`,
+  rifle: `<path d="M2 10.5h13V12h11V9.5h3V8h12v1.5h4V12h7v1h9v2h-9v1.5h-8.5V15H36l3.2 9.5-5.2 1.6-3.4-10.6H29l-2.3 8H21.5l2.3-8H17l-4 3H2z"/><path d="M46.5 12.4v3.2M49.5 12.4v3.2" stroke="${DK}" stroke-width="1.1" opacity=".6"/>`,
+  sniper: `<path d="M22 6.5h18v4.5h-2.5v1.5H63v2H35v2.5h-8.5l-2.2 6.5h-5.2l2.2-6.5H9l-7 4H.5V12H14v-1.5h12V11h-4z"/><circle cx="23.6" cy="8.75" r="1.2" fill="${DK}"/><path d="M53 15.5l-3 9M55 15.5l3 9" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>`,
+  grenade: `<circle cx="30" cy="19.5" r="10"/><rect x="26" y="5" width="8" height="5.5" rx="1"/><path d="M34 7.5h6.5l3 6-2 1-2.5-5H34z"/><circle cx="22.5" cy="8.6" r="3.4" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M21 17h18M20.5 22h19M30 10.5v18.5" stroke="${DK}" stroke-width="1.4"/>`,
+};
+export const weaponIconSvg = (id) => `<svg viewBox="0 0 64 32" aria-hidden="true">${WEAPON_ICONS[id] || WEAPON_ICONS.fists}</svg>`;
+
 const HELP_KB = 'WASD bewegen · Shift sprinten · Leertaste springen · F einsteigen · Rechte Maustaste zielen · Esc Pause · M Karte';
 const HELP_PAD = 'LS rennen · A springen/klettern · Y einsteigen · LT/RT zielen/schießen · LB Waffenrad · ↑ Handy · View Karte · Menü Pause';
 
@@ -58,15 +72,28 @@ const CSS = `
 #gui .qdist small{font-size:14px;font-weight:600;opacity:.88}
 #gui .place{position:absolute;left:250px;bottom:30px;font-size:15px;text-shadow:0 2px 6px #000;opacity:.95;line-height:1.35}
 #gui .place b{font-size:19px;display:block}
-#gui .weapon{position:absolute;right:26px;bottom:26px;text-align:right;text-shadow:0 2px 8px #000}
+#gui .hud-br{position:absolute;right:26px;bottom:26px;display:flex;flex-direction:column;align-items:flex-end;gap:12px}
+#gui .weapon{display:flex;align-items:center;gap:13px;text-align:right;text-shadow:0 2px 8px #000}
+#gui .weapon .wico{flex:0 0 auto;width:92px;height:50px;padding:5px 9px;border-radius:12px;background:linear-gradient(160deg,rgba(18,22,32,.78),rgba(8,10,16,.6));box-shadow:0 0 0 1px rgba(255,255,255,.24),0 6px 18px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+#gui .weapon .wico svg{width:100%;height:100%;fill:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.8))}
 #gui .weapon .wn{font-size:17px;font-weight:700;opacity:.95}
 #gui .weapon .am{font-size:30px;font-weight:800}
+#gui .weapon .am:empty{display:none}
 #gui .weapon .am small{font-size:17px;opacity:.7;font-weight:600}
-#gui .veh{position:absolute;right:26px;bottom:100px;text-align:right;text-shadow:0 2px 8px #000;display:none}
+#gui .call{display:none;align-items:center;gap:12px;padding:8px 16px 8px 9px;border-radius:999px;background:linear-gradient(100deg,rgba(10,40,22,.86),rgba(8,14,20,.78));box-shadow:0 0 0 1px rgba(110,240,150,.45),0 8px 22px rgba(0,0,0,.5);text-shadow:0 1px 4px #000}
+#gui .call .ph{position:relative;flex:0 0 40px;width:40px;height:40px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;box-shadow:0 0 12px rgba(34,197,94,.7)}
+#gui .call .ph::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid rgba(110,240,150,.8);animation:callring 1.4s ease-out infinite}
+#gui .call .ph svg{width:22px;height:22px;fill:#fff;animation:callshake 1.4s ease-in-out infinite}
+#gui .call .ci{display:flex;flex-direction:column;align-items:flex-end;line-height:1.15}
+#gui .call .cw{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8ff0b0}
+#gui .call .ct{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+@keyframes callring{0%{transform:scale(.9);opacity:1}100%{transform:scale(1.45);opacity:0}}
+@keyframes callshake{0%,60%,100%{transform:rotate(0)}10%,30%,50%{transform:rotate(-12deg)}20%,40%{transform:rotate(12deg)}}
+#gui .veh{text-align:right;text-shadow:0 2px 8px #000;display:none}
 #gui .veh .sp{font-size:54px;font-weight:800;line-height:1}
 #gui .veh .sp small{font-size:18px;opacity:.75;margin-left:4px}
 #gui .veh .vn{font-size:15px;opacity:.85}
-#gui .radio{position:absolute;right:26px;bottom:230px;font-size:16px;text-shadow:0 2px 6px #000;opacity:0;transition:opacity .4s;text-align:right}
+#gui .radio{font-size:16px;text-shadow:0 2px 6px #000;opacity:0;transition:opacity .4s;text-align:right}
 #gui .radio.show{opacity:1}
 #gui .radio b{color:#ff5de6}
 #gui .cross{position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;display:none}
@@ -95,6 +122,9 @@ const CSS = `
 #gui .bub{position:absolute;transform:translate(-50%,-100%);padding:4px 10px;background:rgba(255,255,255,.92);color:#111;border-radius:12px;font-size:14px;font-weight:600;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.4)}
 #gui .bub::after{content:"";position:absolute;left:50%;bottom:-6px;margin-left:-6px;border:6px solid transparent;border-bottom:0;border-top-color:rgba(255,255,255,.92)}
 #gui .nametag{position:absolute;transform:translate(-50%,-100%);font-size:13px;text-shadow:0 1px 4px #000;white-space:nowrap}
+#gui .mptags{position:absolute;inset:0}
+#gui .mptag{position:absolute;transform:translate(-50%,-100%);padding:2px 11px 3px;border-radius:999px;background:rgba(8,14,24,.62);border:1px solid rgba(74,222,128,.75);font-size:13px;font-weight:700;white-space:nowrap;text-shadow:0 1px 3px #000;display:none}
+#gui .mptag::before{content:"";display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:#4ade80;vertical-align:1px}
 #gui .uw{position:absolute;inset:0;opacity:0;transition:opacity .25s;background:radial-gradient(ellipse at 50% 30%,rgba(40,140,170,.38),rgba(4,40,60,.82) 85%)}
 #gui .vig{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(255,0,0,0) 45%,rgba(200,0,20,.55) 100%);opacity:0;transition:opacity .25s}
 #gui .over{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.35)}
@@ -113,14 +143,41 @@ const CSS = `
 #gui .help{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);white-space:nowrap;font-size:13px;opacity:.75;text-shadow:0 1px 4px #000;transition:opacity 1s}
 #gui .panel{pointer-events:auto}
 #gui .gmenu{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(8,5,20,.62);backdrop-filter:blur(8px);pointer-events:auto}
-#gui .gmenu .box{width:min(560px,92vw);max-height:88vh;overflow:auto;padding:26px 28px;background:rgba(20,12,40,.92);border:1px solid rgba(255,255,255,.22);border-radius:16px;box-shadow:0 20px 70px rgba(0,0,0,.6)}
-#gui .gmenu.wide .box{width:min(980px,96vw)}
+#gui .gmenu .box{width:min(560px,92%);max-height:min(88vh,calc(100% - 20px));overflow:auto;padding:26px 28px;background:rgba(20,12,40,.92);border:1px solid rgba(255,255,255,.22);border-radius:16px;box-shadow:0 20px 70px rgba(0,0,0,.6)}
+#gui .gmenu.wide .box{width:min(980px,96%)}
+#gui #pm .mb{margin:5px 0;padding:9px 16px;font-size:17px}
+#gui #pm .mb small{font-size:12px;margin-top:0}
+@media (max-height:780px){#gui #pm .mb{margin:4px 0;padding:6px 14px;font-size:16px}}
 #gui .gmenu h2{margin:0 0 16px;font-size:26px;letter-spacing:.04em}
 #gui .gmenu h3{margin:18px 0 8px;font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:#ff9be9}
 #gui .mb{display:block;width:100%;margin:8px 0;padding:13px 18px;text-align:left;font:inherit;font-size:18px;font-weight:600;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:10px;cursor:pointer;transition:background .15s,transform .15s}
 #gui .mb:hover,#gui .mb:focus-visible{background:rgba(255,130,230,.22);transform:translateX(4px);outline:none}
 #gui .mb small{display:block;font-weight:400;opacity:.7;font-size:13px;margin-top:2px}
 #gui .mb[disabled]{opacity:.4;cursor:default}
+#gui .mb.admin{background:linear-gradient(100deg,rgba(220,38,38,.42),rgba(150,20,20,.3));border:2px solid #ef4444;box-shadow:0 0 0 1px rgba(0,0,0,.35),0 0 16px rgba(239,68,68,.35)}
+#gui .mb.admin:hover,#gui .mb.admin:focus-visible{background:linear-gradient(100deg,rgba(239,68,68,.6),rgba(185,28,28,.45))}
+#gui .ahead{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:0 0 16px}
+#gui .ahead h2{margin:0}
+#gui .abtn{flex:0 0 auto;padding:8px 18px;font:inherit;font-size:15px;font-weight:800;letter-spacing:.06em;color:#fff;background:#dc2626;border:1px solid #f87171;border-radius:9px;cursor:pointer;box-shadow:0 6px 18px rgba(220,38,38,.35)}
+#gui .abtn:hover{background:#ef4444}
+#gui .stat-head{display:flex;align-items:center;gap:16px;margin:0 0 18px;padding:16px 18px;border-radius:16px;background:radial-gradient(120% 140% at 0% 0%,rgba(255,107,214,.22),transparent 60%),rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12)}
+#gui .stat-ava{flex:0 0 58px;width:58px;height:58px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:900;background:linear-gradient(160deg,#2a1650,#7a2c8f 55%,#ff8a3d)}
+#gui .stat-who b{display:block;font-size:22px}
+#gui .stat-who span{font-size:14px;opacity:.75}
+#gui .stat-day{margin-left:auto;text-align:right}
+#gui .stat-day b{display:block;font-size:30px;font-weight:900;line-height:1;background:linear-gradient(90deg,#ffb347,#ff6bd6);-webkit-background-clip:text;background-clip:text;color:transparent}
+#gui .stat-day span{font-size:13px;opacity:.75}
+#gui .stat-sec{margin:16px 0 8px;font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#ff9be9}
+#gui .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+#gui .stat-card{position:relative;padding:13px 14px 12px;border-radius:14px;background:linear-gradient(160deg,rgba(255,255,255,.09),rgba(255,255,255,.035));border:1px solid rgba(255,255,255,.12);overflow:hidden}
+#gui .stat-card i{position:absolute;right:10px;top:10px;width:26px;height:26px;opacity:.35}
+#gui .stat-card i svg{width:100%;height:100%;fill:#fff}
+#gui .stat-card small{display:block;font-size:12px;letter-spacing:.04em;opacity:.72}
+#gui .stat-card b{display:block;margin-top:4px;font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+#gui .stat-card.money b{color:#6ee7a8}
+#gui .stat-card.accent b{color:#ffd46a}
+#gui .stat-bar{height:8px;margin-top:8px;border-radius:5px;background:rgba(0,0,0,.35);overflow:hidden}
+#gui .stat-bar em{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#22c55e,#8dffb0)}
 #gui .row{display:flex;align-items:center;gap:14px;margin:10px 0}
 #gui .row label{flex:1;font-size:16px}
 #gui .row input[type=range]{width:200px}
@@ -217,6 +274,13 @@ const CSS = `
 #gui .qrow.open{border-color:rgba(255,210,74,.65)}
 #gui .qrow.open .qbadge{background:#ffd24a;color:#2e2400}
 #gui .qrow.locked{opacity:.55}
+#gui .sleepov{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:radial-gradient(ellipse at 50% 40%,#101a38,#02040a 70%);opacity:0;transition:opacity .7s ease;pointer-events:auto}
+#gui .sleepov.on{opacity:1}
+#gui .sleepov svg{width:74px;height:74px;fill:#ffe9a8;filter:drop-shadow(0 0 18px rgba(255,220,140,.55));animation:moonfloat 3s ease-in-out infinite}
+#gui .sleepov h3{margin:6px 0 0;font-size:24px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;opacity:.85}
+#gui .sleepov .sc{font-size:64px;font-weight:900;font-variant-numeric:tabular-nums;letter-spacing:.03em;text-shadow:0 0 30px rgba(130,160,255,.4)}
+#gui .sleepov .sd{font-size:17px;opacity:.75}
+@keyframes moonfloat{50%{transform:translateY(-8px)}}
 #gui .dlg{position:absolute;left:50%;bottom:60px;transform:translateX(-50%);width:min(820px,92vw);padding:16px 22px;background:rgba(10,8,24,.88);border:1px solid rgba(255,255,255,.25);border-radius:14px;display:none;pointer-events:auto}
 #gui .dlg .who{font-weight:800;color:#ffd46a;margin-bottom:4px}
 #gui .dlg .txt{font-size:20px;line-height:1.4}
@@ -240,9 +304,12 @@ export class UI {
       <div class="hud-tr"><div class="clock"></div><div class="money">€0</div><div class="stars"></div></div>
       <div class="mapwrap"><canvas width="210" height="210"></canvas></div>
       <div class="place"><b></b><span></span></div>
-      <div class="weapon"><div class="wn"></div><div class="am"></div></div>
-      <div class="veh"><div class="sp">0<small>km/h</small></div><div class="vn"></div></div>
-      <div class="radio"></div>
+      <div class="hud-br">
+        <div class="radio"></div>
+        <div class="call"><div class="ph"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.2 15.2 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1z"/></svg></div><div class="ci"><span class="cw">Anruf</span><span class="ct">0:00</span></div></div>
+        <div class="veh"><div class="sp">0<small>km/h</small></div><div class="vn"></div></div>
+        <div class="weapon"><div class="wico"></div><div class="wtx"><div class="wn"></div><div class="am"></div></div></div>
+      </div>
       <div class="cross"></div><div class="dot"></div>
       <div class="prompt"></div>
       <div class="notes"></div>
@@ -254,6 +321,7 @@ export class UI {
       <div class="over"><h1></h1><p></p></div>
       <div class="dlg"><div class="who"></div><div class="txt"></div><div class="go">[Leertaste] Weiter</div></div>
       <div class="mapfull"><canvas></canvas><div class="mapshade"></div><div class="questpanel"></div><div class="mapbrand"><svg viewBox="0 0 84 80" aria-hidden="true"><g fill="#04090e"><path d="M27 74C30 58 30 42 25 28l4.6-1.5C36 41 36 58 34 74z"/><path d="M27 27C20 18 11 17 3 24c9-2 16 0 23 6zM27 27C18 27 10 33 8 43c6-8 13-11 21-12zM27 27C24 16 16 9 6 10c9 3 14 9 18 19zM27 27C28 15 37 7 49 9c-9 3-14 9-18 20zM27 27c9-9 20-8 28 0-10-2-17-1-25 4zM27 27c10 0 17 7 18 17-5-7-11-11-20-13z"/><path d="M51 74c3-10 4-20 6-30l4 1c-2 11-3 20-2 29z"/><path d="M58 44c-5-7-13-8-20-4 8-1 13 1 19 7zM58 44c-8 1-13 6-14 14 4-6 9-8 17-9zM58 44c0-9 8-15 18-13-8 2-12 7-15 16zM58 44c8-5 17-3 22 6-7-4-13-4-20 1zM58 44c7 2 11 8 11 16-4-7-8-10-15-12zM58 44c-3-9-9-12-16-12 6 3 10 8 13 15z"/><circle cx="28" cy="30" r="4"/><circle cx="59" cy="47" r="3.2"/><path d="M8 77c12-6 24-5 32-3 10-3 24-3 36 3z"/></g></svg><div><b>Mallorca's</b><hr><span>Street Life</span></div></div><div class="mapinfo"><div class="mi"><div class="mclock">00:00</div><div class="mmoney">€0</div></div><div class="mcompass" title="Norden oben"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="30.5" fill="rgba(8,14,22,.85)" stroke="rgba(255,255,255,.2)" stroke-width="1.5"/><g class="needle"><text x="32" y="17" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">N</text><path d="M32 20L45 51 32 44 19 51Z" fill="#fff"/></g></svg></div></div><div class="maptop"><div class="maptabs"><div class="mtab on" data-t="map">Karte</div><div class="mtab" data-t="quests">Quests</div></div><div class="mapmode"><div class="mm on" data-m="2d" title="Flache Karte (V)">2D</div><div class="mm" data-m="3d" title="Reliefkarte (V)">3D</div></div></div><div class="mapctl"><div class="mc" data-c="in" title="Hineinzoomen">+</div><div class="mc" data-c="out" title="Herauszoomen">−</div><div class="mc" data-c="me" title="Zu meiner Position">⌖</div></div><div class="mapscale"><div class="nums"><span style="left:0"></span><span style="left:25%"></span><span style="left:50%"></span><span style="left:100%"></span></div><div class="line"><i style="left:0"></i><i style="left:25%"></i><i style="left:50%"></i><i style="left:100%"></i></div></div><div class="maplegend"></div><div class="mapbar"></div></div>
+      <div class="sleepov"><svg viewBox="0 0 24 24"><path d="M14.5 2.5a9.5 9.5 0 1 0 7 15.9A8 8 0 0 1 14.5 2.5z"/></svg><h3>Du schläfst …</h3><div class="sc">00:00</div><div class="sd"></div></div>
       <div class="gmenu"><div class="box"></div></div>
       <div class="fpsd"></div>
       <div class="help"></div>`;
@@ -263,6 +331,7 @@ export class UI {
     this.el = {
       vig: $('.vig'), uw: $('.uw'), obj: $('.obj'), clock: $('.clock'), money: $('.money'), stars: $('.stars'), mapCanvas: $('.mapwrap canvas'),
       hp: $('.vrow.hp i'), ar: $('.vrow.ar i'), arRow: $('.vrow.ar'), vhRow: $('.vrow.vh'), vh: $('.vrow.vh i'), vhTxt: $('.vrow.vh small'), fuRow: $('.vrow.fu'), fu: $('.vrow.fu i'), fuTxt: $('.vrow.fu small'), o2Row: $('.vrow.o2'), o2: $('.vrow.o2 i'), st: $('.vrow.st i'), stRow: $('.vrow.st'), compass: $('.compass canvas'), qdist: $('.qdist'), place: $('.place'), weapon: $('.weapon'), veh: $('.veh'), radio: $('.radio'),
+      wico: $('.weapon .wico'), call: $('.call'), callWho: $('.call .cw'), callT: $('.call .ct'),
       cross: $('.cross'), dot: $('.dot'), prompt: $('.prompt'), notes: $('.notes'), sub: $('.sub'), bubbles: $('.bubbles'), banner: $('.banner'),
       arrest: $('.arrest'), over: $('.over'), dlg: $('.dlg'), mapfull: $('.mapfull'), menu: $('.gmenu'), fps: $('.fpsd'), help: $('.help'), lock: $('.lockhint'),
     };
@@ -320,16 +389,24 @@ export class UI {
   }
 
   // Ein Anruf ist eine Dialogzeile, deren Sprecher "(Anruf)" trägt (oder mit call: true). Die Spielfigur hält dann das Handy ans Ohr.
-  _setCall(on) {
+  // Während des Anrufs zeigt das HUD unten rechts (über der Waffe) ein Telefonsymbol mit der laufenden Gesprächsdauer.
+  _setCall(on, who = '') {
     const p = this.game.player;
-    if (on && !this._inCall) this.game.audio?.phoneRing?.();
+    if (on && !this._inCall) { this.game.audio?.phoneRing?.(); this._callStart = performance.now(); }
     this._inCall = on;
+    if (on) {
+      const name = String(who).replace(/\s*\(Anruf\)\s*/i, '').trim();
+      if (name) this.el.callWho.textContent = 'Anruf · ' + name;
+      else if (!this._callWhoSet) this.el.callWho.textContent = 'Anruf';
+      this._callWhoSet = !!name || this._callWhoSet;
+    } else this._callWhoSet = false;
+    this.el.call.style.display = on ? 'flex' : 'none';
     if (p) p.anim.phone = on;
   }
 
   _nextLine() {
     const l = this.dialogQueue.shift();
-    this._setCall(!!l && (!!l.call || /\(Anruf\)/.test(l.who || '')));
+    this._setCall(!!l && (!!l.call || /\(Anruf\)/.test(l.who || '')), l ? l.who : '');
     if (!l) {
       this.el.dlg.style.display = 'none';
       this.dialogOpen = false;
@@ -381,6 +458,27 @@ export class UI {
     o.style.display = 'flex';
   }
   hideOverlay() { this.el.over.style.display = 'none'; }
+
+  // Schlafen: Bild wird schwarz, die Uhr läuft von „from“ um dh Stunden vor; done() kommt bei schwarzem Bild
+  sleepOverlay(from, dh, done) {
+    const ov = this.root.querySelector('.sleepov'), sc = ov.querySelector('.sc'), sd = ov.querySelector('.sd');
+    const day = (this.game.stats.days || 0) + 1, newDay = from + dh >= 24;
+    const fmt = (h) => { h = ((h % 24) + 24) % 24; const hh = Math.floor(h), mm = Math.floor((h - hh) * 60); return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`; };
+    sd.textContent = newDay ? `Tag ${day} → Tag ${day + 1}` : `Tag ${day}`;
+    sc.textContent = fmt(from);
+    ov.style.display = 'flex';
+    requestAnimationFrame(() => ov.classList.add('on'));
+    const t0 = performance.now() + 700, RUN = 2600;
+    const tick = (now) => {
+      const k = Math.min(1, Math.max(0, (now - t0) / RUN));
+      const e = k * k * (3 - 2 * k);
+      sc.textContent = fmt(from + dh * e);
+      if (k < 1) { requestAnimationFrame(tick); return; }
+      try { done && done(); } catch (err) { console.error(err); }
+      setTimeout(() => { ov.classList.remove('on'); setTimeout(() => { ov.style.display = 'none'; }, 750); }, 450);
+    };
+    requestAnimationFrame(tick);
+  }
 
   damaged(d) { this.dmgT = Math.min(1, this.dmgT + d / 40); }
 
@@ -478,14 +576,21 @@ export class UI {
       el.stars.innerHTML = [0, 1, 2, 3, 4, 5].map((i) => `<span class="${i < w ? 'on' : 'off'}${i === 5 ? ' six' : ''}">★</span>`).join('');
       el.stars.classList.toggle('flash', w > 0 && g.police.evading);
     }
-    // Waffe
+    // Waffe: Symbol links neben Name und Munition
     const W = p.weapon;
     if (p.vehicle && !p.sidearm) el.weapon.style.display = 'none';
     else {
-      el.weapon.style.display = 'block';
+      el.weapon.style.display = 'flex';
+      const wid = W ? W.id : 'fists';
+      if (wid !== this._wIcon) { this._wIcon = wid; el.wico.innerHTML = weaponIconSvg(wid); }
       el.weapon.querySelector('.wn').textContent = W ? W.name : '';
       const ws = p.weapons[p.cur];
       el.weapon.querySelector('.am').innerHTML = W && W.mag ? `${ws ? ws.mag : 0}<small> / ${ws ? ws.reserve : 0}</small>` : (W && W.thrown ? `${ws ? ws.mag + ws.reserve : 0}` : '');
+    }
+    // Anruf: Gesprächsdauer (läuft auch, wenn das Spiel pausiert ist, wie ein echtes Telefonat)
+    if (this._inCall) {
+      const s = Math.max(0, Math.floor((performance.now() - (this._callStart || performance.now())) / 1000));
+      el.callT.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
     }
     // Fahrzeug
     if (p.vehicle) {
@@ -531,7 +636,7 @@ export class UI {
     if (this._frameCount++ % 20 === 0) this._region();
     // Unter Wasser: bläulicher Schleier, sobald die Kamera eintaucht
     const cp = g.camera.position;
-    el.uw.style.opacity = cp.y < -0.12 && g.physics.groundHeight(cp.x, cp.z) < cp.y ? '1' : '0';
+    el.uw.style.opacity = cp.y < g.physics.waterSurface(cp.x, cp.z) - 0.12 && g.physics.groundHeight(cp.x, cp.z) < cp.y ? '1' : '0';
     // Schaden
     this.dmgT = Math.max(0, this.dmgT - dt * 1.4);
     const lowhp = p.hp < p.maxHp * 0.3;
@@ -546,7 +651,7 @@ export class UI {
     if (this.fpsShow) el.fps.textContent = `${Math.round(g.fps)} FPS · Fahrzeuge ${g.vehicles.list.length} · Figuren ${g.characters.length} · Chunks ${g.chunks.chunks.size}`; else el.fps.textContent = '';
     this.hintT -= dt;
     if (this.hintT < 0) el.help.style.opacity = '0';
-    el.help.style.visibility = (this.minimap.full || this.panels.open) ? 'hidden' : 'visible';   // Hinweiszeile nicht über Karte/Menüs
+    el.help.style.visibility = (this.minimap.full || this.panels.open || g.sleeping) ? 'hidden' : 'visible';   // Hinweiszeile nicht über Karte/Menüs/Schlaf
   }
   _frameCount = 0;
 

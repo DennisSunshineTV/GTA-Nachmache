@@ -45,6 +45,14 @@ const GARAGE_COLLIDERS = (() => {
   ];
 })();
 
+// Möbel auf der Terrasse (render/beachgeom.js, terrace): [lx, lz, hx, hz, Höhe über den Dielen, 1 = auf Terrassenhöhe].
+// fz: Abstand, um den die Möbel hinter die Stufen zur Glasfront rücken
+const terraceColliders = (fz) => [
+  ...[[1.5, 7.85, 2.05, 0.55, 0.85, 1], [2.95, 9.0, 0.6, 0.6, 0.6, 1], [0.8, 9.5, 0.82, 0.48, 0.5, 1],
+    [-3.0, 10.65, 0.42, 1.0, 0.6, 1], [-5.3, 10.85, 0.42, 1.0, 0.6, 1], [-1.9, 10.4, 0.1, 0.1, 2.6, 1], [5.4, 11.2, 1.0, 1.0, 0.55, 1]].map(([x, z, ...r]) => [x, z + fz, ...r]),
+  [-5.0, 7.25, 0.46, 0.46, 0.85, 1], [4.62, 7.25, 0.46, 0.46, 0.85, 1], [8.0, 7.75, 0.32, 0.32, 0.65, 1], [7.07, 6.9, 1.36, 0.16, 3.0, 1],
+];
+
 const local = (x, z, rot, lx, lz) => { const c = Math.cos(rot), s = Math.sin(rot); return [x + c * lx + s * lz, z - s * lx + c * lz]; };
 
 // Liegt die Fläche (lokales Rechteck) frei: Sand, kein Wasser, keine Straße, kein Gebäude?
@@ -121,20 +129,33 @@ export function generateBeachHouse(ctx) {
   const rng = new RNG(4242);
   const L = (lx, lz) => local(x, z, rot, lx, lz);
 
-  // --- Straßen: Terrasse zum Meer, Vorplatz, Zufahrt (Holzbohlen, befahrbar) ---
+  // --- Holzflächen: Terrasse zum Meer, Vorplatz, Stege ums Haus und Zufahrt (Holzbohlen, befahrbar) ---
+  // Terrasse, Vorplatz und Stege formen als unsichtbare Wege (hidden) nur das Gelände; gezeichnet werden sie als eine
+  // durchgehende Dielenfläche im Hausraster (render/beachgeom.js, buildHomeDeck) – so ist alles sauber verbunden.
   const nearY = spot.near.y;
   const deckA = L(DECK.x0, DECK.z), deckB = L(DECK.x1, DECK.z);
-  net.addLate('deck', [deckA, deckB], { hf, name: 'Terrasse', noTraffic: true, w: DECK.w, flat: true });
+  net.addLate('deck', [deckA, deckB], { hf, name: 'Terrasse', noTraffic: true, w: DECK.w, flat: true, hidden: true });
   const gate = L(GATE.x, GATE.z);
-  net.addLate('deck', [L(GARAGE.cx - 5.4, GATE.z), gate], { hf, name: 'Vorplatz', noTraffic: true, w: 5.4, flat: true });
-  net.addLate('deck', [gate, L(GARAGE.cx + 5.4, GATE.z)], { hf, name: 'Vorplatz', noTraffic: true, w: 5.4, flat: true });
-  const mid = [(gate[0] + spot.end[0]) / 2 + rng.range(-3, 3), (gate[1] + spot.end[1]) / 2 + rng.range(-3, 3)];
-  net.addLate('deck', [gate, mid, spot.end], { hf, name: 'Beach-House-Zufahrt', noTraffic: true, yB: nearY, w: 6.4 });
-  // Holzsteg: vom Vorplatz bis an die Stufe der Haustür und um die Hausseite herum bis zur Terrasse (alles verbunden)
+  net.addLate('deck', [L(GARAGE.cx - 5.4, GATE.z), gate], { hf, name: 'Vorplatz', noTraffic: true, w: 5.4, flat: true, hidden: true });
+  net.addLate('deck', [gate, L(GARAGE.cx + 5.4, GATE.z)], { hf, name: 'Vorplatz', noTraffic: true, w: 5.4, flat: true, hidden: true });
+  // Zufahrt: verlässt den Vorplatz gerade nach vorn, dann zur Straße; gezeichnet wird sie ebenfalls als Holzsteg
+  const out = L(GATE.x, GATE.z - 2.7 - 5);
+  const mid = [(out[0] + spot.end[0]) / 2 + rng.range(-3, 3), (out[1] + spot.end[1]) / 2 + rng.range(-3, 3)];
+  const drive = net.addLate('deck', [gate, out, mid, spot.end], { hf, name: 'Beach-House-Zufahrt', noTraffic: true, yB: nearY, w: 6.4, hidden: true });
+  // Holzsteg: vor dem Haus entlang (an der Stufe der Haustür) und an der Hausseite bis zur Terrasse – nur rechte Winkel
   const walkZ = -MAIN.d / 2 - HOUSE.porch.d - HOUSE.porch.step - WALK_W / 2;
-  const corner = L(-MAIN.w / 2 - 1.9, walkZ);
-  net.addLate('deck', [L(GARAGE.cx - 5.4, GATE.z), L(GARAGE.cx - 7.4, walkZ), corner], { hf, name: 'Steg', noTraffic: true, w: WALK_W });
-  net.addLate('deck', [corner, L(-MAIN.w / 2 - 1.9, DECK.z - DECK.w / 2)], { hf, name: 'Steg', noTraffic: true, w: WALK_W });
+  const walkX = -MAIN.w / 2 - 1.9;
+  const corner = L(walkX, walkZ);
+  net.addLate('deck', [L(GARAGE.cx - 5.4, walkZ), corner], { hf, name: 'Steg', noTraffic: true, w: WALK_W, hidden: true });
+  net.addLate('deck', [corner, L(walkX, DECK.z - DECK.w / 2)], { hf, name: 'Steg', noTraffic: true, w: WALK_W, hidden: true });
+  // Rechtecke der Dielenfläche (lokal: x0, x1, z0, z1, Richtung der Bretter – quer zur Laufrichtung); sie stoßen
+  // bündig aneinander und reichen bis an die Hauswände
+  const deckRects = [
+    [DECK.x0, DECK.x1, MAIN.d / 2, DECK.z + DECK.w / 2, 'x'],                                   // Terrasse bis an die Glasfront
+    [walkX - WALK_W / 2, -MAIN.w / 2, walkZ + WALK_W / 2, MAIN.d / 2, 'x'],                       // Steg an der Hausseite
+    [walkX - WALK_W / 2, GARAGE.cx - 5.4, walkZ - WALK_W / 2, walkZ + WALK_W / 2, 'z'],           // Steg vor dem Haus
+    [GARAGE.cx - 5.4, GARAGE.cx + 5.4, GATE.z - 2.7, GARAGE.cz - GARAGE.d / 2, 'x'],              // Vorplatz bis ans Garagentor
+  ];
 
   // Boden des Grundstücks: höchster Punkt unter Haus, Garage und Podest. Haus und Garage bekommen einen gemeinsamen,
   // durchgehenden Fußboden darüber – sonst ragt das ansteigende Dünengelände durch den Boden der Innenräume.
@@ -159,7 +180,12 @@ export function generateBeachHouse(ctx) {
     return b;
   };
   // fixBase: Bodenplatte (Fußboden = base + 0.12) für beide auf derselben Höhe
-  const main = add('main', 0, 0, MAIN.w, MAIN.d, MAIN.h, { name: 'Beach House', fixBase: floorY - 0.12, deckY, colliders: MAIN_COLLIDERS });
+  // Stufen von der Terrasse zum Hausboden (der Boden liegt über dem höchsten Geländepunkt)
+  const climb = floorY - (deckY + 0.074);
+  const stairs = climb > 0.35 ? { n: Math.min(7, Math.ceil(climb / 0.24)) } : null;
+  if (stairs) stairs.rise = climb / stairs.n;
+  const furnZ = stairs ? Math.max(0, (stairs.n - 1) * 0.3 - 0.2) : 0;
+  const main = add('main', 0, 0, MAIN.w, MAIN.d, MAIN.h, { name: 'Beach House', fixBase: floorY - 0.12, deckY, stairs, furnZ, colliders: MAIN_COLLIDERS.concat(terraceColliders(furnZ)) });
   const garage = add('garage', GARAGE.cx, GARAGE.cz, GARAGE.w, GARAGE.d, GARAGE.h, { fixBase: floorY - 0.12, colliders: GARAGE_COLLIDERS });
   const signIdx = ctx.signs.add('BEACH HOUSE', 'beach');
   add('sign', GATE.x - 8.2, -MAIN.d / 2 - HOUSE.porch.d - HOUSE.porch.step - WALK_W - 0.9, 3.4, 0.3, 1.9, { signIdx, nocollide: false });   // neben dem Steg
@@ -167,22 +193,20 @@ export function generateBeachHouse(ctx) {
   // Sandfläche unter dem Grundstück (kein Bewuchs, helle Bodenfarbe)
   landuse.fillRect(...L(6, -1), 38, 36, -rot, LU.BEACHCLUB);
 
-  // --- Dekoration: Palmen, Liegen, Sonnenschirm ---
-  const palms = [[-12.5, 9], [-11.5, -3.5], [-8.2, -10.5], [14.5, 11], [21.5, 4], [4.5, 18], [-5, 18.5], [-12.8, 2]];
+  // --- Dekoration: Palmen (Möbel, Liegen und Sonnenschirm gehören zum Haus, render/beachgeom.js) ---
+  const palms = [[-12.5, 9], [-11.5, -3.5], [-11.2, -13.4], [14.5, 11], [21.5, 4], [4.5, 18], [-5, 18.5], [-12.8, 2]];
   for (const [lx, lz] of palms) {
     const [px, pz] = L(lx, lz);
     if (ctx.coast.sdAt(px, pz) < 3) continue;
     ctx.props.push({ t: 'palm', x: px, z: pz, r: rng.next() * 6.28, s: 0.95 + rng.next() * 0.35, v: rng.int(0, 2) });
   }
-  const lg = L(-6.4, 11.8); ctx.props.push({ t: 'lounger', x: lg[0], z: lg[1], r: rot, s: 1, v: 3 });
-  const lg2 = L(-3.8, 12.2); ctx.props.push({ t: 'lounger', x: lg2[0], z: lg2[1], r: rot, s: 1, v: 2 });
-  const ps = L(-5.2, 13.2); ctx.props.push({ t: 'parasol', x: ps[0], z: ps[1], r: 0, s: 1, v: 0 });
 
   // --- Eingang, Innenraum und Fahrzeug-Abstellplatz ---
   // door: Start-/Aufwachpunkt im Wohnzimmer (Blick aufs Meer); entry: vor der Haustür; inside: Speichern & Garage
   const door = L(HOUSE.spawn.x, HOUSE.spawn.z);
   const entry = L(HOUSE.door.x, -MAIN.d / 2 - 1.2);
   const inside = L(HOUSE.marker.x, HOUSE.marker.z);
+  const bed = L(HOUSE.bed.x, HOUSE.bed.z);    // Bett: mit F schlafen (Aufwachzeit wählen)
   const fwd = L(0, -1);                       // Richtung "landeinwärts" (lokal −z) als Weltvektor
   const dirX = fwd[0] - x, dirZ = fwd[1] - z;
   const spawn = L(GARAGE.cx, GATE.z - 0.8);
@@ -191,7 +215,9 @@ export function generateBeachHouse(ctx) {
     door: { x: door[0], z: door[1] },
     entry: { x: entry[0], z: entry[1] },
     inside: { x: inside[0], z: inside[1] },
+    bed: { x: bed[0], z: bed[1] },
     garage: { x: L(GARAGE.cx, GARAGE.cz)[0], z: L(GARAGE.cx, GARAGE.cz)[1] },
+    deck: { rects: deckRects, forecourt: 3, drive: drive ? drive.id : null, driveX: GATE.x },
     spawn: { x: spawn[0], z: spawn[1], h: Math.atan2(dirX, dirZ) },
     baseY: Y, floorY,
     mainB: main, garageB: garage,

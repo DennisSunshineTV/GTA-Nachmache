@@ -4,6 +4,7 @@ import { MeshBuilder } from '../world/meshbuilder.js';
 import { toGeometry } from './geom.js';
 import { mulberry32 } from '../util.js';
 import { boatPropParts } from '../entities/vehicle_models.js';
+import { cardCrown, LEAF } from './foliage.js';
 
 // ---------- Geometrie-Helfer ----------
 
@@ -116,52 +117,79 @@ function palmModel(variant) {
   return { parts: [{ geo: toGeometry(trunk), mat: 'prop' }, { geo: toGeometry(fronds), mat: 'frond' }], collider: { r: 0.42, h: H } };
 }
 
+// Krone für nah (alle Karten) und fern (weniger, größere Karten): gleiche Form, gleiche Farben
+function crownPair(near, far, c, o, seed) {
+  cardCrown(near, c[0], c[1], c[2], c[3], c[4], c[5], o, mulberry32(seed));
+  cardCrown(far, c[0], c[1], c[2], c[3], c[4], c[5], { ...o, n: Math.max(4, Math.round(o.n * 0.38)), size: [o.size[0] * 1.35, o.size[1] * 1.35] }, mulberry32(seed + 1));
+}
+const treeParts = (wood, near, far, collider) => ({ parts: [{ geo: toGeometry(wood), mat: 'prop' }, { geo: toGeometry(near), mat: 'leafCard' }], far: [{ geo: null, mat: 'prop' }, { geo: toGeometry(far), mat: 'leafCard' }], collider });
+
+// Pinien: Schirmpinie (Pinus pinea, flache Schirmkrone auf hohem Stamm) und Aleppo-Kiefer (locker, mehrere Büschel)
 function pineModel(kind) {
-  const mb = new MeshBuilder();
+  const wood = new MeshBuilder(), near = new MeshBuilder(), far = new MeshBuilder();
   const rnd = mulberry32(300 + kind);
-  if (kind === 0) { // Schirmpinie
-    const H = 6.5;
-    tube(mb, [[0, 0, 0], [0.3, 2.5, 0.1], [0.5, 4.8, 0.2], [0.55, H, 0.2]], [0.32, 0.26, 0.22, 0.18], 6, [0.38, 0.28, 0.2]);
-    const g = [0.12, 0.3, 0.12], g2 = [0.2, 0.38, 0.14];
-    blob(mb, 0.5, H + 0.9, 0.2, 3.6, 1.15, 3.4, g, 11, 0.16, 1, 0.14);
-    blob(mb, -1.5, H + 0.2, 0.9, 2.3, 0.9, 2.2, g2, 12, 0.18, 1, 0.14);
-    blob(mb, 2.3, H + 0.1, -0.8, 2.2, 0.9, 2.1, g, 13, 0.18, 1, 0.14);
-  } else { // Aleppo-Kiefer (schlanker)
-    const H = 5.5;
-    tube(mb, [[0, 0, 0], [0.15, 2.4, 0.1], [0.25, H, 0.1]], [0.3, 0.22, 0.14], 6, [0.4, 0.3, 0.22]);
-    const g = [0.13, 0.3, 0.12], g2 = [0.2, 0.37, 0.15];
-    blob(mb, 0.2, H + 0.6, 0.1, 2.0, 1.6, 2.0, g, 21, 0.2, 1, 0.14);
-    blob(mb, 0.1, H + 2.2, 0.1, 1.5, 1.4, 1.5, g2, 22, 0.2, 1, 0.14);
-    blob(mb, 0.1, H + 3.4, 0.1, 0.9, 1.1, 0.9, g, 23, 0.2, 1, 0.14);
-    blob(mb, -1.2, H - 0.3, 0.8, 1.5, 0.9, 1.4, g2, 24, 0.2, 1, 0.14);
+  const bark = [0.42, 0.31, 0.22], bark2 = [0.36, 0.26, 0.19];
+  if (kind === 0) {
+    const H = 6.6;
+    tube(wood, [[0, 0, 0], [0.25, 2.4, 0.08], [0.45, 4.6, 0.18], [0.5, H, 0.2]], [0.34, 0.27, 0.22, 0.17], 8, bark, bark2);
+    // Äste fächern sich unter der Schirmkrone auf
+    for (let b = 0; b < 6; b++) {
+      const a = (b / 6) * Math.PI * 2 + rnd() * 0.5, r = 2.0 + rnd() * 1.2;
+      tube(wood, [[0.45, H - 0.6, 0.18], [0.45 + Math.cos(a) * r * 0.5, H + 0.35, 0.18 + Math.sin(a) * r * 0.5], [0.45 + Math.cos(a) * r, H + 0.75, 0.18 + Math.sin(a) * r]], [0.15, 0.09, 0.05], 5, bark2);
+    }
+    const o = { n: 64, size: [1.7, 2.6], tile: LEAF.pine, tone: [0.74, 1.02], flat: 0.6, shell: 0.35, bottomCut: -0.25, up: 0.6 };
+    crownPair(near, far, [0.45, H + 1.0, 0.2, 3.9, 1.05, 3.7], o, 311);
+    crownPair(near, far, [-1.2, H + 0.55, 1.1, 2.3, 0.8, 2.2], { ...o, n: 22 }, 313);
+    crownPair(near, far, [2.1, H + 0.5, -0.9, 2.2, 0.75, 2.1], { ...o, n: 22 }, 315);
+  } else {
+    const H = 5.6, lean = 0.45;
+    tube(wood, [[0, 0, 0], [0.2, 2.2, 0.1], [lean, H * 0.8, 0.15], [lean * 1.1, H + 1.6, 0.18]], [0.3, 0.22, 0.15, 0.08], 7, bark, bark2);
+    const clumps = [[lean, H + 0.4, 0.15, 2.0, 1.3, 1.9, 24], [lean * 1.1, H + 2.1, 0.18, 1.45, 1.1, 1.4, 16], [-0.9, H - 0.4, 0.8, 1.5, 0.95, 1.4, 14], [1.6, H - 0.1, -0.6, 1.3, 0.9, 1.3, 12], [lean, H + 3.1, 0.2, 0.85, 0.85, 0.85, 8]];
+    clumps.forEach(([x, y, z, rx, ry, rz, n], i) => {
+      tube(wood, [[lean * 0.7, y - 1.2, 0.12], [x, y - 0.2, z]], [0.09, 0.05], 5, bark2);
+      crownPair(near, far, [x, y, z, rx, ry, rz], { n, size: [1.3, 2.0], tile: LEAF.pine, tone: [0.76, 1.04], tilt: 1.4, shell: 0.4 }, 330 + i * 3);
+    });
   }
-  void rnd;
-  return { parts: [{ geo: toGeometry(mb), mat: 'prop' }], collider: { r: 0.4, h: 9 } };
+  return treeParts(wood, near, far, { r: 0.4, h: 9 });
 }
 
+// Olivenbaum: knorriger, geteilter Stamm, silbrig-grüne, lockere Krone aus mehreren Büscheln
 function oliveModel() {
-  const mb = new MeshBuilder();
-  tube(mb, [[0, 0, 0], [0.1, 0.7, 0.05], [-0.1, 1.4, 0.1]], [0.34, 0.3, 0.22], 6, [0.42, 0.37, 0.32]);
-  const cols = [[0.45, 0.52, 0.34], [0.52, 0.58, 0.4], [0.4, 0.47, 0.3]];
-  for (let i = 0; i < 6; i++) { const a = (i / 6) * 6.283; blob(mb, Math.cos(a) * 1.0, 2.0 + (i % 2) * 0.45, Math.sin(a) * 1.0, 1.15, 0.95, 1.15, cols[i % 3], 40 + i, 0.2, 1, 0.1); }
-  blob(mb, 0, 2.9, 0, 1.3, 0.9, 1.3, cols[1], 50, 0.2, 1, 0.1);
-  return { parts: [{ geo: toGeometry(mb), mat: 'prop' }], collider: { r: 0.4, h: 3.5 } };
+  const wood = new MeshBuilder(), near = new MeshBuilder(), far = new MeshBuilder();
+  const rnd = mulberry32(400);
+  const bark = [0.47, 0.43, 0.38], bark2 = [0.38, 0.35, 0.31];
+  tube(wood, [[0, 0, 0], [0.15, 0.5, 0.05], [0.05, 0.95, 0.1]], [0.42, 0.34, 0.3], 8, bark, bark2);
+  const tops = [];
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2 + 0.4, r = 0.9 + rnd() * 0.4;
+    const top = [Math.cos(a) * r, 2.0 + rnd() * 0.4, Math.sin(a) * r];
+    tube(wood, [[0.05, 0.9, 0.1], [top[0] * 0.45 + (rnd() - 0.5) * 0.3, 1.45, top[2] * 0.45], top], [0.2, 0.14, 0.08], 6, bark, bark2);
+    tops.push(top);
+  }
+  tops.forEach((t, i) => crownPair(near, far, [t[0] * 1.15, t[1] + 0.55, t[2] * 1.15, 1.25, 0.95, 1.25], { n: 17, size: [1.1, 1.7], tile: LEAF.olive, tone: [0.82, 1.08], shell: 0.45 }, 410 + i * 3));
+  crownPair(near, far, [0, 2.95, 0, 1.4, 0.9, 1.4], { n: 16, size: [1.1, 1.7], tile: LEAF.olive, tone: [0.85, 1.1], shell: 0.45 }, 420);
+  return treeParts(wood, near, far, { r: 0.45, h: 3.8 });
 }
 
+// Zypresse: schlanke Säule aus dichten, fast senkrechten Schuppenzweig-Karten
 function cypressModel() {
-  const mb = new MeshBuilder();
-  tube(mb, [[0, 0, 0], [0, 0.6, 0]], [0.2, 0.18], 5, [0.35, 0.28, 0.2]);
-  blob(mb, 0, 3.3, 0, 0.85, 3.5, 0.85, [0.07, 0.22, 0.1], 60, 0.1, 1, 0.1);
-  blob(mb, 0, 6.2, 0, 0.55, 1.4, 0.55, [0.1, 0.26, 0.12], 61, 0.1, 1, 0.1);
-  return { parts: [{ geo: toGeometry(mb), mat: 'prop' }], collider: { r: 0.4, h: 7 } };
+  const wood = new MeshBuilder(), near = new MeshBuilder(), far = new MeshBuilder();
+  tube(wood, [[0, 0, 0], [0, 0.7, 0], [0, 6.5, 0]], [0.2, 0.18, 0.06], 6, [0.35, 0.28, 0.2]);
+  const o = { size: [0.9, 1.5], tile: LEAF.cypress, tone: [0.72, 1.0], tilt: 0.35, shell: 0.3, up: 0.15 };
+  crownPair(near, far, [0, 2.9, 0, 0.88, 2.7, 0.88], { ...o, n: 40 }, 501);
+  crownPair(near, far, [0, 5.4, 0, 0.66, 1.5, 0.66], { ...o, n: 18 }, 503);
+  crownPair(near, far, [0, 6.9, 0, 0.36, 0.7, 0.36], { ...o, n: 6, size: [0.7, 1.0] }, 505);
+  return treeParts(wood, near, far, { r: 0.4, h: 7.5 });
 }
 
+// Busch (Strauch/Oleander) bzw. Bougainvillea (magenta Hochblätter): Halbkugel aus Blattkarten
 function bushModel(flower) {
-  const mb = new MeshBuilder();
-  const g = [[0.3, 0.45, 0.2], [0.36, 0.5, 0.24], [0.25, 0.4, 0.18]];
-  for (let i = 0; i < 4; i++) { const a = i * 1.7; blob(mb, Math.cos(a) * 0.5, 0.55 + (i % 2) * 0.2, Math.sin(a) * 0.5, 0.75, 0.6, 0.75, g[i % 3], 70 + i, 0.2, 1, 0.1); }
-  if (flower) for (let i = 0; i < 7; i++) { const a = i * 0.9; blob(mb, Math.cos(a) * 0.7, 0.7 + (i % 3) * 0.22, Math.sin(a) * 0.7, 0.34, 0.26, 0.34, [0.86, 0.1, 0.4], 80 + i, 0.2, 0, 0.12); }
-  return { parts: [{ geo: toGeometry(mb), mat: 'prop' }], collider: null };
+  const wood = new MeshBuilder(), near = new MeshBuilder(), far = new MeshBuilder();
+  for (let k = 0; k < 4; k++) { const a = k * 1.6; tube(wood, [[0, 0, 0], [Math.cos(a) * 0.35, 0.55, Math.sin(a) * 0.35]], [0.05, 0.03], 4, [0.33, 0.27, 0.2]); }
+  const o = { n: 18, size: [0.8, 1.25], tiles: flower ? [LEAF.bougain, LEAF.bougain, LEAF.shrub] : [LEAF.shrub, LEAF.shrub, LEAF.oleander], tone: [0.8, 1.06], shell: 0.5, bottomCut: -0.35, up: 0.5 };
+  crownPair(near, far, [0, 0.68, 0, 0.98, 0.66, 0.98], o, flower ? 611 : 601);
+  crownPair(near, far, [0.35, 1.0, -0.2, 0.55, 0.45, 0.55], { ...o, n: 6 }, flower ? 613 : 603);
+  return treeParts(wood, near, far, null);
 }
 
 function agaveModel() {
@@ -361,37 +389,51 @@ function grassTuftModel(v) {
 
 // Laubbaum (Platane/Linde): Stamm mit Ästen, Krone aus vielen Blattkarten; Normalen zeigen von der Kronenmitte weg
 function broadleafModel(v) {
-  const wood = new MeshBuilder(), leaves = new MeshBuilder();
+  const wood = new MeshBuilder(), near = new MeshBuilder(), far = new MeshBuilder();
   const rnd = mulberry32(900 + v * 17);
   const H = [7.5, 9.5, 6.2][v], R = [3.6, 4.4, 3.0][v];
   const lean = (rnd() - 0.5) * 0.6;
-  tube(wood, [[0, 0, 0], [lean * 0.3, H * 0.3, 0.1], [lean * 0.6, H * 0.55, 0.15], [lean, H * 0.75, 0.2]], [0.32, 0.26, 0.2, 0.13], 7, [0.38, 0.33, 0.27], [0.34, 0.3, 0.25]);
+  const bark = [0.4, 0.35, 0.29], bark2 = [0.35, 0.31, 0.26];
+  tube(wood, [[0, 0, 0], [lean * 0.3, H * 0.3, 0.1], [lean * 0.6, H * 0.55, 0.15], [lean, H * 0.75, 0.2]], [0.34, 0.27, 0.2, 0.13], 8, bark, bark2);
   const cy = H * 0.72 + R * 0.45, cx = lean, cz = 0.2;
-  for (let b = 0; b < 6; b++) {
-    const a = (b / 6) * Math.PI * 2 + rnd(), up = H * (0.45 + rnd() * 0.25);
-    const ex = cx + Math.cos(a) * R * 0.75, ez = cz + Math.sin(a) * R * 0.75, ey = cy + (rnd() - 0.3) * R * 0.6;
-    tube(wood, [[lean * 0.5, up, 0.12], [(lean * 0.5 + ex) / 2, (up + ey) / 2 + 0.4, (0.12 + ez) / 2], [ex, ey, ez]], [0.12, 0.08, 0.04], 5, [0.36, 0.31, 0.25]);
+  const tiles = v === 1 ? [LEAF.broad2, LEAF.broad2, LEAF.broad] : [LEAF.broad, LEAF.broad, LEAF.broad2];
+  // Hauptkrone und 4 Büschel an den Astenden
+  crownPair(near, far, [cx, cy, cz, R * 0.85, R * 0.7, R * 0.85], { n: [30, 38, 24][v], size: [1.6, 2.5], tiles, tone: [0.74, 1.04], shell: 0.5 }, 910 + v * 7);
+  for (let b = 0; b < 5; b++) {
+    const a = (b / 5) * Math.PI * 2 + rnd(), up = H * (0.45 + rnd() * 0.25);
+    const ex = cx + Math.cos(a) * R * 0.72, ez = cz + Math.sin(a) * R * 0.72, ey = cy + (rnd() - 0.35) * R * 0.55;
+    tube(wood, [[lean * 0.5, up, 0.12], [(lean * 0.5 + ex) / 2, (up + ey) / 2 + 0.4, (0.12 + ez) / 2], [ex, ey, ez]], [0.13, 0.08, 0.04], 5, bark2);
+    crownPair(near, far, [ex, ey + 0.3, ez, R * 0.5, R * 0.42, R * 0.5], { n: [9, 11, 7][v], size: [1.4, 2.2], tiles, tone: [0.8, 1.08], shell: 0.5 }, 930 + v * 11 + b * 3);
   }
-  const N = [46, 58, 36][v];
-  for (let k = 0; k < N; k++) {
-    // Punkt im Kronen-Ellipsoid, außen dichter
-    const th = rnd() * Math.PI * 2, ph = Math.acos(2 * rnd() - 1), rr = Math.pow(rnd(), 0.4);
-    const nx = Math.sin(ph) * Math.cos(th), ny = Math.cos(ph), nz = Math.sin(ph) * Math.sin(th);
-    const px = cx + nx * R * rr, py = cy + ny * R * 0.78 * rr, pz = cz + nz * R * rr;
-    const S = 1.7 + rnd() * 1.3;
-    // zufällig orientierte Karte
-    const a = rnd() * Math.PI * 2, b = (rnd() - 0.5) * 1.4;
-    const ux = Math.cos(a), uz = Math.sin(a), vy = Math.cos(b), vh = Math.sin(b);
-    const U = [ux * S / 2, 0, uz * S / 2], V = [-uz * vh * S / 2, vy * S / 2, ux * vh * S / 2];
-    const p = (su, sv) => [px + U[0] * su + V[0] * sv, py + U[1] * su + V[1] * sv, pz + U[2] * su + V[2] * sv];
-    const tone = 0.78 + rnd() * 0.3, yel = rnd() * 0.12;
-    const i0 = leaves.n;
-    leaves.quad(p(-1, -1), p(1, -1), p(1, 1), p(-1, 1), 0, 1, 0, 0, 0, 1, 1, tone * (1 + yel), tone, tone * (0.9 - yel));
-    // Normalen nach außen (wie eine Kugel um die Krone), leicht nach oben gekippt
-    const ln = Math.hypot(nx, ny + 0.35, nz);
-    for (let q = i0; q < leaves.n; q++) { leaves.nor[q * 3] = nx / ln; leaves.nor[q * 3 + 1] = (ny + 0.35) / ln; leaves.nor[q * 3 + 2] = nz / ln; }
-  }
-  return { parts: [{ geo: toGeometry(wood), mat: 'prop' }, { geo: toGeometry(leaves), mat: 'leaf' }], collider: { r: 0.35, h: H } };
+  return treeParts(wood, near, far, { r: 0.35, h: H });
+}
+
+// Bushaltestelle: Wartehäuschen mit Glaswänden, Flachdach, Sitzbank, beleuchteter Werbevitrine und Haltestellenschild.
+// Offene Seite (+z) zur Fahrbahn.
+function busStopModel() {
+  const metal = new MeshBuilder(), body = new MeshBuilder(), glass = new MeshBuilder(), lit = new MeshBuilder();
+  const W = 3.6, D = 1.5, H = 2.45, anth = [0.2, 0.21, 0.23];
+  for (const [x, z] of [[-W / 2, -D / 2], [W / 2, -D / 2], [-W / 2, D / 2 - 0.05], [W / 2, D / 2 - 0.05]]) metal.box(x, 0, z, 0.08, H, 0.08, 0, ...anth);
+  metal.box(0, H, -0.05, W + 0.3, 0.1, D + 0.25, 0, ...anth);
+  body.box(0, H + 0.1, -0.05, W + 0.2, 0.03, D + 0.15, 0, 0.85, 0.86, 0.88);
+  // Rahmen der Glasflächen
+  for (const y of [0.12, H - 0.05]) { metal.box(0, y, -D / 2, W, 0.05, 0.05, 0, ...anth); for (const sx of [-1, 1]) metal.box(sx * W / 2, y, -0.05, 0.05, 0.05, D - 0.1, 0, ...anth); }
+  glass.quadAuto([W / 2, 0.15, -D / 2 + 0.01], [-W / 2, 0.15, -D / 2 + 0.01], [-W / 2, H - 0.06, -D / 2 + 0.01], [W / 2, H - 0.06, -D / 2 + 0.01], 1, 1, 1);
+  glass.quadAuto([-W / 2 + 0.01, 0.15, -D / 2], [-W / 2 + 0.01, 0.15, 0.35], [-W / 2 + 0.01, H - 0.06, 0.35], [-W / 2 + 0.01, H - 0.06, -D / 2], 1, 1, 1);
+  // Sitzbank (Holzlatten auf Metallträgern)
+  for (const x of [-1.2, 0, 1.2]) metal.box(x, 0, -0.42, 0.06, 0.44, 0.38, 0, ...anth);
+  for (let k = 0; k < 3; k++) body.box(0, 0.44, -0.55 + k * 0.13, 2.9, 0.04, 0.1, 0, 0.62, 0.42, 0.25);
+  // Werbevitrine an der rechten Stirnseite (leuchtet nachts) und Fahrplan-Aushang
+  metal.box(W / 2 + 0.02, 0.2, -0.15, 0.14, 2.0, 1.25, 0, ...anth);
+  lit.box(W / 2 + 0.095, 0.32, -0.15, 0.01, 1.76, 1.05, 0, 1, 1, 1);
+  body.box(W / 2 + 0.096, 0.4, -0.15, 0.012, 1.5, 0.9, 0, 0.95, 0.55, 0.2);
+  body.box(-0.9, 1.15, -D / 2 + 0.04, 0.6, 0.8, 0.02, 0, 0.96, 0.96, 0.92);
+  // Haltestellenschild: Mast mit gelbem „H“-Schild
+  metal.cylinder(-W / 2 - 0.45, 0, D / 2 - 0.1, 0.045, 0.045, 2.75, 8, ...anth);
+  body.cylinder(-W / 2 - 0.45, 2.55, D / 2 - 0.1, 0.3, 0.3, 0.04, 20, 0.12, 0.5, 0.22);
+  body.cylinder(-W / 2 - 0.45, 2.6, D / 2 - 0.1, 0.26, 0.26, 0.05, 20, 0.98, 0.82, 0.1);
+  for (const [x, w] of [[-0.09, 0.05], [0.09, 0.05]]) body.box(-W / 2 - 0.45 + x, 2.66, D / 2 - 0.1, w, 0.2, 0.002, 0, 0.12, 0.5, 0.22);
+  return { parts: [{ geo: toGeometry(metal), mat: 'propMetal' }, { geo: toGeometry(body), mat: 'prop' }, { geo: toGeometry(glass), mat: 'glassClear' }, { geo: toGeometry(lit), mat: 'lampHead' }], collider: { box: [1.85, 0.8], h: 2.6 } };
 }
 
 // Boote (statisch, Häfen): echte Rumpfformen aus den Fahrzeugmodellen. Bug zeigt nach +z
@@ -427,6 +469,7 @@ export const PROP_DEFS = {
   delineator: { make: () => [delineatorModel()], cap: 6000, noShadow: true },
   grasstuft: { make: () => [grassTuftModel(0), grassTuftModel(1), grassTuftModel(2)], cap: 60000, noShadow: true },
   tree: { make: () => [broadleafModel(0), broadleafModel(1), broadleafModel(2)], cap: 6000 },
+  busstop: { make: () => [busStopModel()], cap: 1200 },
 };
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _c = new THREE.Color();
@@ -438,7 +481,8 @@ export class PropSystem {
     this.group = new THREE.Group();
     scene.add(this.group);
     this.lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.9, 0.6), fog: true });
-    this.matMap = { prop: mats.prop, propMetal: mats.propMetal, frond: mats.frond, lampHead: this.lampMat, glassFlat: mats.glassFlat, grass: mats.grassCard, leaf: mats.leaf };
+    this.matMap = { prop: mats.prop, propMetal: mats.propMetal, frond: mats.frond, lampHead: this.lampMat, glassFlat: mats.glassFlat, grass: mats.grassCard, leaf: mats.leaf, leafCard: mats.leafCard,
+      glassClear: new THREE.MeshStandardMaterial({ color: 0xc4d6dc, transparent: true, opacity: 0.26, roughness: 0.05, metalness: 0.1, depthWrite: false, side: THREE.DoubleSide }) };
     this.types = {};
     this.lampChunks = new Map(); this.lampsDirty = false;
     this.chunks = new Map();   // key -> { type: {mats: Float32Array, cols: Float32Array|null, n, models: [] } }
@@ -451,17 +495,19 @@ export class PropSystem {
       // pro Variante und Teil ein Paar (nah / fern) InstancedMesh
       const entries = [];
       variants.forEach((m, vi) => {
-        m.parts.forEach((part) => {
+        m.parts.forEach((part, pi) => {
           const mat = this.matMap[part.mat];
           const cap = Math.ceil(def.cap / variants.length);
-          const mk = (shadow) => {
-            const im = new THREE.InstancedMesh(part.geo, mat, cap);
+          // Fern-Variante (weniger Blattkarten): eigene Geometrie; geo null = wie nah (z. B. der Stamm)
+          const farGeo = m.far && m.far[pi] && m.far[pi].geo ? m.far[pi].geo : part.geo;
+          const mk = (shadow, geo = part.geo) => {
+            const im = new THREE.InstancedMesh(geo, mat, cap);
             im.count = 0; im.frustumCulled = false; im.castShadow = shadow; im.receiveShadow = true;
             if (part.color || def.colors) { im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3).fill(1), 3); }
             this.group.add(im);
             return im;
           };
-          entries.push({ variant: vi, part, near: mk(!def.noShadow), far: mk(false), cap, color: !!(part.color || def.colors) });
+          entries.push({ variant: vi, part, near: mk(!def.noShadow), far: mk(false, farGeo), cap, color: !!(part.color || def.colors) });
         });
       });
       this.types[name] = { def, entries, variants: variants.length };

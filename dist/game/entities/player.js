@@ -148,7 +148,7 @@ export class Player extends Character {
     if (this.state === 'swim') {
       const down = input.key('KeyC') || input.key('ControlLeft') || input.padDown(PAD.B);
       const up = input.key('Space') || input.padDown(PAD.A);
-      const maxD = Math.max(0, -1.0 - (g.physics.groundHeight(this.x, this.z) + 0.35));
+      const maxD = Math.max(0, (this.inPool ? g.physics.poolLevel(this.inPool) : 0) - 1.0 - (g.physics.groundHeight(this.x, this.z) + 0.35));
       const d0 = this.diveDepth;
       if (down) this.diveDepth = Math.min(maxD, this.diveDepth + dt * DIVE_DOWN);
       else if (up) this.diveDepth = Math.max(0, this.diveDepth - dt * DIVE_UP);
@@ -156,6 +156,11 @@ export class Player extends Character {
       this.diveDir = Math.sign(this.diveDepth - d0);
       I.jump = false; I.crouch = false; this.padCrouch = false;
     }
+    // Pool: Schwimmt (oder watet) man gegen den Beckenrand, klettert die Figur von selbst hinaus (auch mit Leertaste)
+    if (this.inPool && this.atPoolRim && Math.hypot(I.mx, I.mz) > 0.3) {
+      this.rimT = (this.rimT || 0) + dt;
+      if ((this.rimT > 0.3 || input.hit('Space')) && this.tryClimb()) { this.rimT = 0; I.mx = I.mz = 0; I.speed = 0; I.aim = false; this.aiming = false; return; }
+    } else this.rimT = 0;
     // A: springen bzw. klettern – im Nahkampf stattdessen halten = blocken, kurz tippen = ausweichen/kontern
     if (input.padHit(PAD.A)) {
       if (this.state === 'ground' && !I.sprint && g.combat.opponent(this)) this.aT = 0;
@@ -174,7 +179,7 @@ export class Player extends Character {
       if (foe) this.faceLock = Math.atan2(foe.x - this.x, foe.z - this.z);
       I.mx *= 0.5; I.mz *= 0.5; I.speed = Math.min(I.speed, 0.5); I.sprint = false; I.jump = false;
     }
-    if (this.dodgeT > 0) { I.mx = this.dodgeDir.x; I.mz = this.dodgeDir.z; I.speed = 1; I.sprint = true; I.jump = false; this.faceLock = this.h; }
+    if (this.dodgeT > 0 && this.dodgeDir) { I.mx = this.dodgeDir.x; I.mz = this.dodgeDir.z; I.speed = 1; I.sprint = true; I.jump = false; this.faceLock = this.h; }
     // X: tippen = Schlag/Tritt, halten = schwerer Angriff
     if (input.padHit(PAD.X)) this.xT = 0;
     if (this.xT !== null) {
@@ -403,7 +408,7 @@ export class Player extends Character {
     const pos = target.clone().addScaledVector(dir, hitD);
     // Nicht unter den Boden / das Wasser
     const gh = phys.groundHeight(pos.x, pos.z);
-    pos.y = Math.max(pos.y, gh + 0.45, this.diveDepth > 0.3 ? -60 : 0.4);   // beim Tauchen darf die Kamera mit unter Wasser
+    pos.y = Math.max(pos.y, gh + 0.45, this.diveDepth > 0.3 ? -60 : phys.waterSurface(pos.x, pos.z) + 0.4);   // beim Tauchen darf die Kamera mit unter Wasser (Meer und Pool)
     if (!this.camInit) { this.camPos.copy(pos); this.camInit = true; } else {
       const k = 1 - Math.exp(-(hitD < L ? 30 : 16) * dt);
       this.camPos.lerp(pos, k);

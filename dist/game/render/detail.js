@@ -12,23 +12,8 @@ import { TAU, ihash } from '../util.js';
 
 const ckey = (cx, cz) => (cx + 4096) * 8192 + (cz + 4096);
 import { BOAT_REF } from '../entities/vehicle_models.js';
-
-function poolPoly(p, grow = 0, n = 34) {
-  const pts = [];
-  const hw = p.w / 2 + grow, hd = p.d / 2 + grow;
-  const c = Math.cos(p.rot), s = Math.sin(p.rot);
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * TAU;
-    let lx, lz;
-    if (p.shape === 'kidney') {
-      lx = hw * Math.cos(a) * (1 + 0.1 * Math.sin(3 * a));
-      lz = hd * Math.sin(a) * (1 + 0.22 * Math.cos(2 * a)) - hd * 0.12 * Math.cos(a) * Math.cos(a);
-    } else if (p.shape === 'round') { lx = hw * Math.cos(a); lz = hd * Math.sin(a); }
-    else { const e = 2 / 6; lx = hw * Math.sign(Math.cos(a)) * Math.pow(Math.abs(Math.cos(a)), e); lz = hd * Math.sign(Math.sin(a)) * Math.pow(Math.abs(Math.sin(a)), e); }
-    pts.push([p.x + c * lx + s * lz, p.z - s * lx + c * lz]);
-  }
-  return pts;
-}
+import { poolSurface, poolOutline, poolDepthAt, poolLocal, poolWorld, islandR } from '../world/pools.js';
+import { buildHomeDeck } from './beachgeom.js';
 
 export class DetailBuilder {
   constructor(ctx, mats, props, chunkMgrRef) {
@@ -103,8 +88,9 @@ export class DetailBuilder {
     const x0 = cx * CHUNK, z0 = cz * CHUNK, x1 = x0 + CHUNK, z1 = z0 + CHUNK;
     const hAt = (x, z) => this.cm.heightAt(x, z);
     const B = { plaster: new MeshBuilder(), old: new MeshBuilder(), hotel: new MeshBuilder(), glass: new MeshBuilder(), shop: new MeshBuilder(), metal: new MeshBuilder(), club: new MeshBuilder(), finca: new MeshBuilder(), roof: new MeshBuilder(), flat: new MeshBuilder(), sign: new MeshBuilder(),
-      hPlaster: new MeshBuilder(), hRoof: new MeshBuilder(), hWood: new MeshBuilder(), hStone: new MeshBuilder(), hHedge: new MeshBuilder(), hGlass: new MeshBuilder(), hGlassLit: new MeshBuilder(), hFence: new MeshBuilder() };
-    const roadMB = new MeshBuilder(), poolMB = new MeshBuilder(), rimMB = new MeshBuilder();
+      hPlaster: new MeshBuilder(), hRoof: new MeshBuilder(), hWood: new MeshBuilder(), hStone: new MeshBuilder(), hHedge: new MeshBuilder(), hGlass: new MeshBuilder(), hGlassLit: new MeshBuilder(), hFence: new MeshBuilder(),
+      led: new MeshBuilder(), glow: new MeshBuilder(), bglass: new MeshBuilder(), hDeck: new MeshBuilder(), leaf: new MeshBuilder() };   // Strandhaus
+    const roadMB = new MeshBuilder(), poolMB = new MeshBuilder(), rimMB = new MeshBuilder(), basinMB = new MeshBuilder();
     B.road = roadMB;      // Einfahrten und Gartenwege der Häuser liegen im Straßen-Mesh (Pflaster)
     const colliders = [], platforms = [];
     const list = []; // Props
@@ -124,9 +110,11 @@ export class DetailBuilder {
       if (b.colliders) {
         // Begehbares Gebäude (Strandhaus): einzelne Wände/Möbel statt eines massiven Blocks; [lx, lz, hx, hz, Höhe?]
         const yF = b.base + 0.12;
-        for (const [lx, lz, hx, hz, h] of b.colliders) {
+        for (const [lx, lz, hx, hz, h, onDeck] of b.colliders) {
           const house = b.style === 'house';
-          colliders.push({ k: 'b', x: b.x + c * lx + s * lz, z: b.z - s * lx + c * lz, hx, hz, c, s, y0: h && !house ? yF - 0.2 : b.y0 - 1, y1: h ? yF + h + (house ? 0.5 : 0) : b.base + b.h + 4, ref: b });
+          // onDeck: Möbel auf der Terrasse (unterhalb des Hausbodens)
+          const gy = onDeck ? (b.deckY ?? yF) : yF;
+          colliders.push({ k: 'b', x: b.x + c * lx + s * lz, z: b.z - s * lx + c * lz, hx, hz, c, s, y0: onDeck ? gy - 0.6 : h && !house ? yF - 0.2 : b.y0 - 1, y1: h ? gy + h + (house ? 0.5 : 0) : b.base + b.h + 4, ref: b });
         }
       } else colliders.push({ k: 'b', x: b.x, z: b.z, hx: b.w / 2, hz: b.d / 2, c, s, y0: b.y0 - 1, y1: b.base + b.h + 4, ref: b });
       if (b.style === 'house' || (++work & 7) === 0) yield;
@@ -150,14 +138,16 @@ export class DetailBuilder {
     const nodes = [];
     ctx.net.nodeHash.query(x0, z0, x1, z1, (n) => { if (n.x >= x0 && n.x < x1 && n.z >= z0 && n.z < z1) nodes.push(n); });
     buildNodes(ctx, nodes, roadMB);
+    // Strandhaus: Terrasse, Stege und Vorplatz als durchgehende Dielenfläche (in der Kachel des Hauses)
+    if (ctx.home && ctx.home.deck && ckey(Math.floor(ctx.home.x / CHUNK), Math.floor(ctx.home.z / CHUNK)) === key) buildHomeDeck(ctx, hAt, B, colliders);
     yield;
 
-    // --- Pools ---
+    // --- Pools: man kann darin schwimmen. Das Gelände hat an der Wasserfläche ein Loch (Shader, materials.setPools),
+    // darunter liegt das Becken (Wände, Boden mit flachem und tiefem Ende), drumherum der Beckenrand als Ring ---
     for (const p of this.poolIdx.get(key) || []) {
-      let y = -1e9;
-      for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, -0.7]]) y = Math.max(y, hAt(p.x + dx * p.w / 2, p.z + dz * p.d / 2));
-      y += 0.1;
-      const rim = poolPoly(p, 0.9), wat = poolPoly(p, 0);
+      const y = poolSurface(p, hAt);
+      const N = 40;
+      const rim = poolOutline(p, 0.9, N), wat = poolOutline(p, 0, N);
       const fan = (mb, pts, yy, r, g, bl, uvScale) => {
         const cxy = [p.x, yy, p.z];
         for (let i = 0; i < pts.length; i++) {
@@ -165,12 +155,57 @@ export class DetailBuilder {
           mb.triUp(cxy, [a[0], yy, a[1]], [b[0], yy, b[1]], r, g, bl, [p.x / uvScale, p.z / uvScale], [a[0] / uvScale, a[1] / uvScale], [b[0] / uvScale, b[1] / uvScale]);
         }
       };
-      fan(rimMB, rim, y - 0.04, 0.93, 0.9, 0.84, 6);
-      fan(poolMB, wat, y, 1, 1, 1, 7);
+      // Beckenrand: Ring zwischen Wasserkante und 0,9 m außen
+      for (let i = 0; i < N; i++) {
+        const a = wat[i], b = wat[(i + 1) % N], c = rim[(i + 1) % N], d = rim[i];
+        rimMB.quadUp([a[0], y - 0.04, a[1]], [b[0], y - 0.04, b[1]], [c[0], y - 0.04, c[1]], [d[0], y - 0.04, d[1]], 0.93, 0.9, 0.84, a[0] / 6, a[1] / 6, c[0] / 6, c[1] / 6);
+      }
+      // Wasserfläche knapp unter dem Rand (durchsichtig, man sieht Schwimmer und Beckenboden)
+      fan(poolMB, wat, y - 0.07, 1, 1, 1, 7);
+      // Wände vom Rand bis zum Boden (Fliesen, Vorderseite zur Beckenmitte), Boden als Fächer mit Tiefenverlauf
+      const floorAt = (x, z) => y - poolDepthAt(p, poolLocal(p, x, z)[0]);
+      // Viereck A,B,C,D (oben a, oben b, unten b, unten a) mit Vorderseite zum Punkt (tx,tz)
+      const wallQuad = (A, Bq, C, D, tx, tz, col, u0, u1, v1) => {
+        const ux = C[0] - A[0], uy = C[1] - A[1], uz = C[2] - A[2], vx = D[0] - Bq[0], vy = D[1] - Bq[1], vz = D[2] - Bq[2];
+        const nx = uy * vz - uz * vy, nz = ux * vy - uy * vx;
+        const mx = tx - (A[0] + Bq[0]) / 2, mz = tz - (A[2] + Bq[2]) / 2;
+        if (nx * mx + nz * mz >= 0) basinMB.quadAuto(A, Bq, C, D, ...col, u0, 0, u1, v1);
+        else basinMB.quadAuto(D, C, Bq, A, ...col, u0, v1, u1, 0);
+      };
+      let along = 0;
+      for (let i = 0; i < N; i++) {
+        const a = wat[i], b = wat[(i + 1) % N];
+        const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        const fa = floorAt(a[0], a[1]), fb = floorAt(b[0], b[1]);
+        const top = y - 0.04, band = top - 0.14;
+        // dunkelblaue Fliesenkante unter dem Rand, darunter helle Fliesen
+        wallQuad([a[0], top, a[1]], [b[0], top, b[1]], [b[0], band, b[1]], [a[0], band, a[1]], p.x, p.z, [0.12, 0.34, 0.52], 0, 1, 1);
+        wallQuad([a[0], band, a[1]], [b[0], band, b[1]], [b[0], fb, b[1]], [a[0], fa, a[1]], p.x, p.z, [0.74, 0.9, 0.96], along / 2.5, (along + len) / 2.5, ((band - fa) + (band - fb)) / 5);
+        along += len;
+      }
+      const cf = floorAt(p.x, p.z);
+      for (let i = 0; i < N; i++) {
+        const a = wat[i], b = wat[(i + 1) % N];
+        basinMB.triUp([p.x, cf, p.z], [a[0], floorAt(a[0], a[1]), a[1]], [b[0], floorAt(b[0], b[1]), b[1]], 0.6, 0.82, 0.92, [p.x / 3, p.z / 3], [a[0] / 3, a[1] / 3], [b[0] / 3, b[1] / 3]);
+      }
+      // Bahnlinie am Boden (dunkelblau) entlang der langen Achse
+      {
+        const L = p.w * 0.38, wdt = 0.12;
+        const q = (lx, lz) => { const [wx, wz] = poolWorld(p, lx, lz); return [wx, floorAt(wx, wz) + 0.01, wz]; };
+        basinMB.quadUp(q(-L, -wdt), q(L, -wdt), q(L, wdt), q(-L, wdt), 0.1, 0.25, 0.5);
+      }
       if (p.island) {
-        const ring = []; for (let i = 0; i < 14; i++) { const a = (i / 14) * TAU; ring.push([p.x + Math.cos(a) * p.d * 0.19, p.z + Math.sin(a) * p.d * 0.19]); }
+        const ir = islandR(p), M = 16, ring = [];
+        for (let i = 0; i < M; i++) { const a = (i / M) * TAU; ring.push(poolWorld(p, Math.cos(a) * ir, Math.sin(a) * ir)); }
+        for (let i = 0; i < M; i++) {
+          const a = ring[i], b = ring[(i + 1) % M];
+          const fa = floorAt(a[0], a[1]), fb = floorAt(b[0], b[1]);
+          // Inselwand: Vorderseite nach außen ins Wasser
+          const mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2;
+          wallQuad([a[0], y + 0.12, a[1]], [b[0], y + 0.12, b[1]], [b[0], fb, b[1]], [a[0], fa, a[1]], 2 * mx - p.x, 2 * mz - p.z, [0.74, 0.9, 0.96], 0, 1, 1);
+        }
         const cc = [p.x, y + 0.2, p.z];
-        for (let i = 0; i < ring.length; i++) { const a = ring[i], b = ring[(i + 1) % ring.length]; B.flat.triUp(cc, [a[0], y + 0.12, a[1]], [b[0], y + 0.12, b[1]], 0.3, 0.5, 0.2); }
+        for (let i = 0; i < M; i++) { const a = ring[i], b = ring[(i + 1) % M]; B.flat.triUp(cc, [a[0], y + 0.12, a[1]], [b[0], y + 0.12, b[1]], 0.3, 0.5, 0.2); }
         list.push({ t: 'palm', x: p.x, y: y + 0.15, z: p.z, r: 1, s: 0.8, v: 1 });
       }
     }
@@ -225,7 +260,10 @@ export class DetailBuilder {
     add(B.hPlaster, H.plaster); add(B.hRoof, H.roof); add(B.hWood, H.wood); add(B.hStone, H.stone); add(B.hHedge, H.hedge);
     add(B.hGlass, H.glass); add(B.hGlassLit, H.glassLit); add(B.hFence, H.fence);
     add(roadMB, mats.road, { cast: false, order: 1, linear: true });   // Vertexfarben = Shader-Parameter
+    add(basinMB, mats.poolBasin, { cast: false });
     add(rimMB, mats.poolRim, { cast: false, order: 2 });
+    add(B.hDeck, mats.deckWood, { cast: false }); add(B.led, mats.led, { cast: false }); add(B.leaf, mats.leaf);
+    add(B.glow, mats.glow, { cast: false, order: 4 }); add(B.bglass, mats.homeGlass, { cast: false, order: 5 });
     add(poolMB, mats.pool, { cast: false, order: 3 });
     this.cm.scene.add(group);
 

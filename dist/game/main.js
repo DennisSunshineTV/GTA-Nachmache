@@ -16,6 +16,8 @@ import { EnemyManager } from './ai/enemies.js';
 import { MissionManager } from './story/missions.js';
 import { Shops } from './story/shops.js';
 import { buildSatelliteData } from './ui/satellite.js';
+import { Underwater } from './render/underwater.js';
+import { Multiplayer } from './net/multiplayer.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -26,8 +28,10 @@ export async function startGame(container, opts = {}) {
   progress(0.56, 'Satellitenbild der Inseln …'); await tick();
   ctx.satData = await buildSatelliteData(ctx, tick);   // Grundlage für Karte und Minikarte
   progress(0.58, 'Grafik vorbereiten …'); await tick();
-  const engine = new Engine(container, opts.quality || 'high');
+  const gfx = loadSettings();
+  const engine = new Engine(container, opts.quality || 'high', { resolution: gfx.resolution, shadows: gfx.shadows !== false });
   const atm = new Atmosphere(engine.renderer, engine.scene, engine.camera, { hour: opts.hour ?? 10.5, weather: opts.weather || 'sunny', shadowSize: engine.q.shadow || 1024, shadowRange: engine.q.shadowRange });
+  atm.sun.castShadow = engine.shadowsOn;
   const mats = new Materials(ctx.signs);
   const sea = new Sea(engine.scene, ctx.coast, atm);
   const props = new PropSystem(engine.scene, mats);
@@ -45,8 +49,8 @@ export async function startGame(container, opts = {}) {
   game.userName = opts.userName || 'Spieler';
   window.__game = game;
 
-  // Start-Position und Gelände laden
-  const start = opts.start || game.startPosition();
+  // Start-Position und Gelände laden (Multiplayer: am Hafen von Palma)
+  const start = opts.start || (opts.mp ? game.mpStartPosition(opts.mp.you?.id || 0) : game.startPosition());
   engine.camera.position.set(start.x, 40, start.z);
   chunks.update({ x: start.x, z: start.z });
   const total = chunks.queue.length;
@@ -71,8 +75,9 @@ export async function startGame(container, opts = {}) {
   game.enemies = new EnemyManager(game);
   game.missions = new MissionManager(game);
   game.shops = new Shops(game);
+  game.under = new Underwater(game);           // Muscheln, Wasserpflanzen und Fische im Meer
   // Neues Spiel am Strandhaus: ein Kleinwagen steht in der Garage (der erste Auftrag verlangt ein Fahrzeug)
-  if (!(opts.save && opts.save.save) && !opts.start && game.ctx.home && !game.owned.vehicles.length) {
+  if (!opts.mp && !(opts.save && opts.save.save) && !opts.start && game.ctx.home && !game.owned.vehicles.length) {
     game.owned.vehicles.push({ type: 'compact', paint: 0 });
     game.shops.spawnOwned(0);
   }
@@ -89,7 +94,7 @@ export async function startGame(container, opts = {}) {
   game.fps = 60;
   const loop = (now) => {
     if (game.stopped) return;
-    const dt = Math.min(0.1, (now - last) / 1000);
+    const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));   // der erste Zeitstempel kann vor „last“ liegen
     last = now;
     try {
       game.update(dt);
@@ -103,6 +108,8 @@ export async function startGame(container, opts = {}) {
   game.stop = () => { game.stopped = true; cancelAnimationFrame(game.raf); };
   progress(1, 'Los geht’s!');
   game.start();
-  if (!opts.noMissions) game.missions.begin();
+  if (!opts.noMissions && !opts.mp) game.missions.begin();
+  // Multiplayer: Verbindung zum Server (Mitspieler, Serverzeit)
+  if (opts.mp) { game.net = new Multiplayer(game, opts.mp); game.ui.notify(`${game.net.serverName}: ${game.net.countText()} Spielern`, 'info', 5000); }
   return game;
 }

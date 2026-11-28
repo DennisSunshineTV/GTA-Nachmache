@@ -14,6 +14,10 @@ import { generateBeachHouse } from './beachhouse.js';
 import { generateServices } from './services.js';
 import { SpatialHash } from '../util.js';
 import { doorOf } from './spots.js';
+import { placeTrafficLights } from './trafficlights.js';
+import { placeBusStops } from './busstops.js';
+import { generateParking } from './parking.js';
+import { generateRestaurants } from './restaurants.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -49,11 +53,14 @@ export async function buildWorldData(progress = () => {}) {
   generateBeachHouse(ctx);
   log(ctx.home ? `Strandhaus bei ${ctx.home.x.toFixed(0)}, ${ctx.home.z.toFixed(0)}` : 'Strandhaus: kein Platz gefunden');
   generateServices(ctx);
+  log(`Parkplätze: ${generateParking(ctx)}`);
+  log(`Restaurants: ${generateRestaurants(ctx)}`);
   log(`Tankstellen ${ctx.services.filter((s) => s.kind === 'fuel').length}, Werkstätten ${ctx.services.filter((s) => s.kind === 'repair').length}`);
   // Erst jetzt liegen alle Straßen: Fahrbahnen freiräumen und die Stege anpassen
   const free = clearRoads(ctx);
   log(`Fahrbahnen frei: ${free.trimmed} Häuser gekürzt, ${free.removed} abgerissen, ${free.moved} verlegt, ${free.pools} Pools und ${free.props} Objekte entfernt`);
   fitPiers(ctx);
+  log(`Ampelkreuzungen: ${placeTrafficLights(ctx)}`);
 
   // Gebäude-Basishöhen (nach Straßeneinschnitt)
   progress(0.82, 'Gebäude platzieren …'); await tick();
@@ -90,6 +97,7 @@ export async function buildWorldData(progress = () => {}) {
     p.bx = p.x; p.bz = p.z; p.x = d.x; p.z = d.z; p.door = true; doors++;
   }
   log(`Gebäudehöhen, ${doors} Eingänge`);
+  log(`Bushaltestellen: ${placeBusStops(ctx)}`);
   progress(0.9, 'Welt fertig'); await tick();
   ctx.generatedMs = performance.now() - t0;
   return ctx;

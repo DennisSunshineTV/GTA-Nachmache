@@ -4,6 +4,7 @@ import * as T from './textures.js';
 import { smoothstep } from '../util.js';
 import { makeRoadMaterial } from './roadshader.js';
 import * as HD from './hdtextures.js';
+import { makeFoliageAtlas } from './foliage.js';
 
 const POOL_MAX = 32;   // so viele Pools um die Kamera bekommen ein Loch im Gelände
 
@@ -110,8 +111,38 @@ normal = normalize(normal + mat3(viewMatrix) * vec3(tN.x, 0.0, tN.y) * 0.55 * tF
     };
     this.tex.grassCard = HD.makeGrassCard();
     this.grassCard = foliage(this.tex.grassCard, 0.42, 0.92);
-    this.tex.leaf = HD.makeLeafCard();
-    this.leaf = foliage(this.tex.leaf, 0.46, 0.95);
+    // Laub der Bäume und Büsche (render/foliage.js): Atlas mit Blattbüscheln. Wind wiegt die Kronen (Ausschlag wächst mit
+    // der Höhe), die Alpha-Kante bleibt auch in der Ferne dicht (Mip-Ausgleich) und Gegenlicht scheint leicht durch.
+    this.foliageU = { uTime: { value: 0 } };
+    this.tex.foliage = makeFoliageAtlas();
+    this.leafCard = new THREE.MeshStandardMaterial({ map: this.tex.foliage, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.82, vertexColors: true });
+    this.leafCard.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = this.foliageU.uTime;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;').replace('#include <begin_vertex>', `#include <begin_vertex>
+  {
+    #ifdef USE_INSTANCING
+      vec3 ip = vec3(instanceMatrix[3][0], 0.0, instanceMatrix[3][2]);
+    #else
+      vec3 ip = vec3(0.0);
+    #endif
+    float h = max(0.0, position.y);
+    float ph = ip.x * 0.13 + ip.z * 0.11;
+    float big = sin(uTime * 0.9 + ph) * 0.6 + sin(uTime * 1.7 + ph * 1.3) * 0.4;
+    float flut = sin(uTime * 4.3 + position.x * 1.7 + position.z * 1.3 + ph) * 0.35;
+    transformed.x += (big * 0.018 + flut * 0.012) * h;
+    transformed.z += (sin(uTime * 1.1 + ph * 0.7) * 0.012 + flut * 0.01) * h;
+  }`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace(/normal \*= faceDirection;/g, ''))
+        .replace('#include <alphatest_fragment>', `
+  #ifdef USE_MAP
+  { vec2 tsz = vec2(textureSize(map, 0)); vec2 ddx = dFdx(vMapUv * tsz), ddy = dFdy(vMapUv * tsz);
+    float lod = max(0.0, 0.5 * log2(max(dot(ddx, ddx), dot(ddy, ddy))));
+    diffuseColor.a *= 1.0 + lod * 0.3; }
+  #endif
+  if (diffuseColor.a < alphaTest) discard;`)
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += diffuseColor.rgb * 0.06;');
+    };
+    this.leafCard.customProgramCacheKey = () => 'leaf-card-v2';
     // Einfamilienhäuser (render/housegeom.js): Texturen in Metern, Tönung über Vertexfarben
     const winAtlas = HD.makeWindowAtlas();
     const tm = (t, o = {}) => new THREE.MeshStandardMaterial({ map: t.map, normalMap: t.normal, normalScale: new THREE.Vector2(o.n ?? 0.8, o.n ?? 0.8), vertexColors: true, roughness: o.rough ?? 0.9, metalness: 0 });
@@ -147,6 +178,8 @@ normal = normalize(normal + mat3(viewMatrix) * vec3(tN.x, 0.0, tN.y) * 0.55 * tF
     };
     this.leaf.customProgramCacheKey = () => 'leaf-uplit-v1';
     this.prop = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
+    // Markierungen auf dem Belag (Parkbuchten): stärker zur Kamera gezogen als die Fahrbahn selbst
+    this.marking = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
     this.propMetal = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.6 });
     this.tex.glow = T.makeGlowTexture();
 

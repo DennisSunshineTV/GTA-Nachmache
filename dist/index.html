@@ -71,7 +71,65 @@
       display: block; margin-top: 10px; font-size: 0.3em; font-weight: 700; letter-spacing: 0.42em;
       color: #fff; -webkit-text-fill-color: #fff; opacity: 0.88; text-transform: uppercase;
     }
-    body.playing .menu, body.playing .account-bar, body.playing .logo, body.playing .notice { display: none; }
+    body.playing .menu, body.playing .account-bar, body.playing .logo, body.playing .notice, body.playing .fs-btn, body.playing .req-panel { display: none; }
+    body.playing { background: #000; }   /* schwarzer Rand, wenn das Spielfenster kleiner als das Browserfenster ist */
+
+    /* ---------- Vollbild (unten rechts über der Version) ---------- */
+    .fs-btn {
+      position: fixed; right: 32px; bottom: 70px; z-index: 10;
+      display: inline-flex; align-items: center; gap: 9px; padding: 10px 16px;
+      font: inherit; font-size: 0.95rem; font-weight: 700; color: #fff; cursor: pointer;
+      background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 10px;
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .fs-btn:hover, .fs-btn:focus-visible { background: rgba(0, 0, 0, 0.65); border-color: rgba(255, 255, 255, 0.45); outline: none; }
+    .fs-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ---------- Freundschaftsanfragen oben rechts unter „Ausloggen“ ---------- */
+    .req-panel { position: fixed; top: 74px; right: 32px; z-index: 10; width: min(360px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 8px; }
+    .req-panel[hidden] { display: none; }
+    .req-card {
+      padding: 12px 14px; border-radius: 14px; color: #fff;
+      background: rgba(20, 10, 40, 0.86); border: 1px solid rgba(255, 141, 233, 0.55);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      animation: req-in 0.25s ease-out;
+    }
+    .req-card.note { border-color: rgba(134, 239, 172, 0.55); }
+    .req-card.note.no { border-color: rgba(252, 165, 165, 0.6); }
+    .req-card small { display: block; font-size: 11px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #ff9fe2; margin-bottom: 4px; }
+    .req-card.note small { color: #86efac; }
+    .req-card.note.no small { color: #fca5a5; }
+    .req-card p { margin: 0 0 10px; font-size: 14.5px; line-height: 1.4; }
+    .req-card .rq-btns { display: flex; gap: 8px; }
+    .req-card button { flex: 1; padding: 8px 10px; font: inherit; font-size: 13.5px; font-weight: 700; color: #fff; cursor: pointer; border-radius: 9px; border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.1); }
+    .req-card button.yes { background: #16a34a; border-color: #4ade80; }
+    .req-card button.no { background: rgba(220, 38, 38, 0.65); border-color: #f87171; }
+    .req-card button:hover { filter: brightness(1.12); }
+    @keyframes req-in { from { opacity: 0; transform: translateY(-6px); } }
+    .bell { position: relative; }
+    .bell b { position: absolute; top: -6px; right: -6px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px; background: #ec3f9e; font-size: 11px; line-height: 19px; text-align: center; }
+
+    /* ---------- Multiplayer-Serverauswahl ---------- */
+    .srv-list { display: grid; gap: 10px; margin: 4px 0 6px; }
+    .srv { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 16px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.14); }
+    .srv .ic { flex: none; width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: linear-gradient(140deg, #8b45f0, #ec3f9e); }
+    .srv .ic svg { width: 24px; height: 24px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; }
+    .srv .nm { flex: 1; min-width: 0; }
+    .srv .nm b { font-size: 18px; }
+    .srv .nm span { margin-left: 8px; font-size: 16px; font-weight: 700; color: #86efac; }
+    .srv .nm span.full { color: #fca5a5; }
+    .srv .bar { height: 6px; margin-top: 7px; border-radius: 4px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+    .srv .bar i { display: block; height: 100%; background: linear-gradient(90deg, #22c55e, #86efac); }
+    .srv button { flex: none; padding: 10px 18px; font: inherit; font-weight: 800; color: #fff; cursor: pointer; border: 0; border-radius: 11px; background: linear-gradient(100deg, #ff8a3d, #ec3f9e 55%, #8b45f0); }
+    .srv button:disabled { opacity: 0.45; cursor: default; filter: grayscale(0.6); }
+    .mp-note { margin: 6px 0 0; font-size: 14px; color: #cfc6e6; }
+    .mp-note a { color: #ff9fe2; cursor: pointer; font-weight: 700; }
+    .slot-btn { display: block; width: 100%; padding: 11px 16px; text-align: left; font: inherit; font-weight: 700; color: #fff; cursor: pointer; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 12px; }
+    .slot-btn:hover:not(:disabled) { background: rgba(255, 130, 230, 0.2); border-color: #ff8de9; }
+    .slot-btn:disabled { opacity: 0.45; cursor: default; }
+    .slot-btn div { font-weight: 400; font-size: 13px; opacity: 0.78; margin-top: 2px; }
+    .slot-btn.arm { border-color: #fbbf24; background: rgba(251, 191, 36, 0.18); }
     .menu button.locked { opacity: 0.75; }
 
     /* ---------- Overlays (Laden, Figurenauswahl, Dialoge) ---------- */
@@ -313,7 +371,7 @@
   </style>
 </head>
 <body>
-  <h1 class="logo">Mallorca's: Street Life<small>Open-World · Einzelspieler</small></h1>
+  <h1 class="logo">Mallorca's: Street Life<small>Open-World · Einzel- &amp; Mehrspieler</small></h1>
 
   <nav class="menu">
     <button type="button" data-act="start">Spiel starten</button>
@@ -326,6 +384,7 @@
   </nav>
 
   <div class="account-bar" id="accountBar"></div>
+  <div class="req-panel" id="reqPanel" hidden></div>
 
   <dialog id="registerDialog">
     <h2>Registrieren</h2>
@@ -414,7 +473,8 @@
     </div>
   </dialog>
 
-  <div class="notice">Version 1.0 · Einzelspieler</div>
+  <button type="button" class="fs-btn" id="fsBtn" title="Spiel im Vollbild anzeigen (Esc beendet das Vollbild)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span>Vollbild</span></button>
+  <div class="notice">Version 1.1 · Einzel- &amp; Mehrspieler</div>
 
   <div id="gameRoot" hidden></div>
 
@@ -760,9 +820,15 @@
     const SAVE_WHO = { jason: 'Mann', lucia: 'Frau' };
     const slotInfo = (s) => (SAVE_WHO[s.summary.who] || 'Mann') + ' · ' + Number(s.summary.money || 0).toLocaleString('de-DE') + ' € · ' + (s.summary.missions || 0) + ((s.summary.missions || 0) === 1 ? ' Mission' : ' Missionen') + ' · ' + new Date(s.savedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 
-    function chooseCharacter() { qs('#charSelect').hidden = false; }
-    document.querySelectorAll('#charSelect .card').forEach((c) => c.addEventListener('click', () => { qs('#charSelect').hidden = true; launch({ who: c.dataset.who }); }));
-    qs('#charBack').addEventListener('click', () => { qs('#charSelect').hidden = true; });
+    // Figurauswahl; cb(who) übernimmt (z. B. Multiplayer), sonst startet ein neues Spiel
+    let charPick = null;
+    function chooseCharacter(cb = null) { charPick = cb; qs('#charSelect').hidden = false; }
+    document.querySelectorAll('#charSelect .card').forEach((c) => c.addEventListener('click', () => {
+      qs('#charSelect').hidden = true;
+      const cb = charPick; charPick = null;
+      if (cb) cb(c.dataset.who); else launch({ who: c.dataset.who });
+    }));
+    qs('#charBack').addEventListener('click', () => { qs('#charSelect').hidden = true; charPick = null; });
 
     // ---------- Lobbymusik (selbst erzeugt, urheberrechtsfrei: assets/lobbymusic.js) ----------
     let lobby = null;
@@ -785,7 +851,7 @@
       } catch (e) { console.warn('Lobbymusik nicht verfügbar:', e); }
     }
 
-    async function launch({ who, save = null }) {
+    async function launch({ who, save = null, mp = null }) {
       if (lobby) lobby.stop(1.2);
       const load = qs('#loading');
       const setProg = (p, m) => { load.querySelector('.bar i').style.width = Math.round(p * 100) + '%'; if (m) load.querySelector('.msg').textContent = m; };
@@ -802,6 +868,7 @@
         const opts = {
           who: sv ? sv.who : who, rank: me.rank, userName: me.name, quality: s.quality, save,
           start: sv ? { x: sv.x, z: sv.z, heading: sv.h || 0 } : undefined,
+          mp: mp || null, noMissions: !!mp,          // Multiplayer: freies Spiel ohne Story-Missionen
           onProgress: setProg,
           onExit: () => exitGame(),
         };
@@ -812,6 +879,7 @@
         gameInst.input.lock();
       } catch (e) {
         console.error(e);
+        if (mp) fetch('/api/mp/leave', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ server: mp.server, token: mp.token }) }).catch(() => {});
         root.hidden = true; root.innerHTML = '';
         document.body.classList.remove('playing');
         load.hidden = true;
@@ -865,11 +933,25 @@
       });
     }
 
-    // Speicherstand laden: ganz oben der Auto-Save, darunter die eigenen Speicherstände 1–10 (leere Plätze sind gesperrt)
+    // Speicherplätze: 0 = Auto-Save, 1–5 = eigene. Ältere Stände aus den früheren Plätzen 6–10 lassen sich noch laden.
+    const SAVE_SLOTS = 5;
+    const slotTitle = (n) => (n === 0 ? 'Auto-Save (automatisch)' : n > SAVE_SLOTS ? 'Älterer Speicherstand ' + n + ' (nur laden)' : 'Speicherplatz ' + n);
+    function slotButton(title, sub, onClick) {
+      const btn = el('button', { type: 'button', className: 'slot-btn' }, title, el('div', { textContent: sub }));
+      if (onClick) btn.onclick = onClick; else btn.disabled = true;
+      return btn;
+    }
+    async function fetchSlots() {
+      const r = await api('/api/saves');
+      if (!Array.isArray(r.slots)) throw new Error('alt');
+      return r.slots;
+    }
+
+    // Speicherstand laden: ganz oben der Auto-Save, darunter die 5 Speicherplätze (leere Plätze sind gesperrt)
     async function loadFlow() {
       if (!requireLogin()) return;
       let slots = [];
-      try { slots = (await api('/api/saves')).slots; if (!Array.isArray(slots)) throw new Error('alt'); } catch {
+      try { slots = await fetchSlots(); } catch {
         // Ältere Server-Version ohne Speicherplätze: den einen vorhandenen Stand laden
         const old = await fetchSave();
         if (old) { launch({ save: old }); return; }
@@ -878,35 +960,168 @@
       }
       if (!slots.length) { toast('Für diesen Account gibt es noch keinen Speicherstand.'); return; }
       const by = new Map(slots.map((s) => [s.slot, s]));
-      modal('<h2>Speicherstand laden</h2><div id="sl-list" style="display:grid;gap:8px"></div><div class="btns"><button id="m-x">Abbrechen</button></div>', (b) => {
+      const shown = [0, 1, 2, 3, 4, 5, ...slots.filter((s) => s.slot > SAVE_SLOTS).map((s) => s.slot)];
+      modal('<h2>Speicherstand laden</h2><p class="lead" style="margin:-6px 0 14px;opacity:.8">Auto-Save und 5 Speicherplätze</p><div id="sl-list" style="display:grid;gap:8px"></div><div class="btns"><button id="m-x">Abbrechen</button></div>', (b) => {
         const list = b.querySelector('#sl-list');
-        for (let n = 0; n <= 10; n++) {
+        for (const n of shown) {
           const s = by.get(n);
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.style.cssText = BTN + ';text-align:left;width:100%' + (s ? '' : ';opacity:.45;cursor:default');
-          const title = document.createElement('div');
-          title.textContent = n === 0 ? 'Auto-Save (automatisch)' : 'Speicherstand ' + n;
-          const sub = document.createElement('div');
-          sub.style.cssText = 'font-weight:400;font-size:13px;opacity:.75;margin-top:2px';
-          sub.textContent = s ? slotInfo(s) : (n === 0 ? 'Noch nichts automatisch gespeichert' : 'Leer');
-          btn.append(title, sub);
-          if (s) btn.onclick = async () => { const sv = await fetchSave(n); if (!sv) { toast('Der Speicherstand konnte nicht geladen werden.'); return; } closeModal(); launch({ save: sv }); };
-          else btn.disabled = true;
+          list.append(slotButton(slotTitle(n), s ? slotInfo(s) : (n === 0 ? 'Noch nichts automatisch gespeichert' : 'Leer'),
+            s ? async () => { const sv = await fetchSave(n); if (!sv) { toast('Der Speicherstand konnte nicht geladen werden.'); return; } closeModal(); launch({ save: sv }); } : null));
+        }
+        const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = closeModal;
+      });
+    }
+
+    // Speicherstand speichern (Startseite): den neuesten Spielstand in einen der 5 Speicherplätze sichern.
+    // Im Spiel speichert man über das Pause-Menü (Esc) oder in der Wohnung direkt in einen Platz.
+    async function saveFlow() {
+      if (!requireLogin()) return;
+      let slots = [];
+      try { slots = await fetchSlots(); } catch { toast('Die Speicherplätze sind auf dem Server noch nicht verfügbar.'); return; }
+      const newest = slots.reduce((a, s) => (!a || s.savedAt > a.savedAt ? s : a), null);
+      const by = new Map(slots.map((s) => [s.slot, s]));
+      modal('<h2>Speicherstand speichern</h2><p class="lead" id="sv-lead" style="margin:-6px 0 14px;opacity:.85"></p><div id="sl-list" style="display:grid;gap:8px"></div><div class="btns"><button id="m-x">Schließen</button></div>', (b) => {
+        const lead = b.querySelector('#sv-lead');
+        lead.textContent = newest
+          ? 'Sichere deinen neuesten Spielstand (' + slotTitle(newest.slot) + ', ' + new Date(newest.savedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) + ') in einem der 5 Speicherplätze. Im Spiel speicherst du über das Pause-Menü (Esc) oder in deiner Wohnung.'
+          : 'Noch kein Spielstand vorhanden – starte ein Spiel. Gespeichert wird im Spiel über das Pause-Menü (Esc) oder in deiner Wohnung; danach kannst du den Stand hier in einen der 5 Plätze sichern.';
+        const list = b.querySelector('#sl-list');
+        for (let n = 1; n <= SAVE_SLOTS; n++) {
+          const s = by.get(n);
+          let armed = false;
+          const btn = slotButton(slotTitle(n), s ? slotInfo(s) : 'Leer', newest ? async () => {
+            if (s && !armed && newest.slot !== n) { armed = true; btn.classList.add('arm'); btn.lastChild.textContent = 'Nochmal klicken, um Speicherplatz ' + n + ' zu überschreiben'; return; }
+            btn.disabled = true;
+            try {
+              const sv = await fetchSave(newest.slot);
+              if (!sv) throw new Error('Der Spielstand konnte nicht gelesen werden.');
+              await api('/api/save?slot=' + n, 'PUT', { save: sv.save });
+              toast('Gespeichert in Speicherplatz ' + n);
+              closeModal(); saveFlow();
+            } catch (e) { toast('Speichern fehlgeschlagen: ' + e.message); btn.disabled = false; }
+          } : null);
           list.append(btn);
         }
         const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = closeModal;
       });
     }
 
+    // Freundschaften: Mitglieder suchen und Anfragen schicken (assets/friends.js, auch im Pause-Menü), dazu die Kontakte aus den Missionen
     async function friendsFlow() {
       if (!requireLogin()) return;
+      let mod;
+      try { mod = await import('/assets/friends.js'); } catch { toast('Die Freundschaften konnten nicht geladen werden.'); return; }
       const sv = await fetchSave();
       const NAMES = { marco: ['Marco Ibáñez', 'Schmuggler & Vermittler'], tomeu: ['Tomeu', 'Bootsmann'], rafael: ['Don Rafael Vidal', 'Pate der Insel'], elena: ['Elena', 'Pilotin'] };
       const f = (sv && sv.save && sv.save.missions && sv.save.missions.friends) || {};
       const rows = Object.entries(NAMES).filter(([k]) => f[k] > 0).map(([k, v]) => '<div class="friend"><b>' + v[0] + '</b> <span style="opacity:.7">· ' + v[1] + '</span><i style="width:' + f[k] + '%"></i></div>').join('');
-      modal('<h2>Freundschaften</h2>' + (rows || '<p>Du hast noch niemanden kennengelernt. Spiele die Missionen, um Kontakte zu knüpfen – sie werden hier und im Pause-Menü des Spiels angezeigt.</p>') + '<div class="btns"><button id="m-x">Schließen</button></div>', (b) => { const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = closeModal; });
+      modal('<h2>Freundschaften</h2><div class="tabs" id="fr-tabs"><button type="button" class="tab on" data-t="members">Mitglieder</button><button type="button" class="tab" data-t="contacts">Kontakte im Spiel</button></div><div id="fr-host"></div><div id="ct-host" hidden>' + (rows || '<p>Du hast noch niemanden kennengelernt. Spiele die Missionen, um Kontakte zu knüpfen – sie werden hier und im Pause-Menü des Spiels angezeigt.</p>') + '</div><div class="btns"><button id="m-x">Schließen</button></div>', (b) => {
+        b.classList.add('wide');
+        const ctl = mod.renderFriends(b.querySelector('#fr-host'), { onChange: (d) => showRequests(d) });
+        setTimeout(() => ctl.focus(), 50);
+        b.querySelectorAll('#fr-tabs .tab').forEach((t) => t.addEventListener('click', () => {
+          b.querySelectorAll('#fr-tabs .tab').forEach((x) => x.classList.toggle('on', x === t));
+          b.querySelector('#fr-host').hidden = t.dataset.t !== 'members';
+          b.querySelector('#ct-host').hidden = t.dataset.t !== 'contacts';
+        }));
+        const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = () => { ctl.dispose(); closeModal(); pollFriends(); };
+      });
     }
+
+    // ---------- Freundschaftsanfragen und Mitteilungen oben rechts (unter „Ausloggen“) ----------
+    const shownInGame = new Set();
+    function showRequests(d) {
+      const panel = $('reqPanel');
+      panel.replaceChildren();
+      if (!me || !d) { panel.hidden = true; return; }
+      for (const r of d.incoming) {
+        const yes = el('button', { type: 'button', className: 'yes', textContent: 'Annehmen' });
+        const no = el('button', { type: 'button', className: 'no', textContent: 'Ablehnen' });
+        const answer = async (accept) => {
+          yes.disabled = no.disabled = true;
+          try { await api('/api/friends/respond', 'POST', { id: r.id, accept }); toast(accept ? 'Du bist jetzt mit ' + r.from.name + ' befreundet.' : 'Anfrage von ' + r.from.name + ' abgelehnt.'); }
+          catch (e) { toast(e.message); }
+          pollFriends();
+        };
+        yes.onclick = () => answer(true); no.onclick = () => answer(false);
+        panel.append(el('div', { className: 'req-card' }, el('small', { textContent: 'Freundschaftsanfrage' }), el('p', {}, el('b', { textContent: r.from.name }), ' möchte mit dir befreundet sein.'), el('div', { className: 'rq-btns' }, yes, no)));
+      }
+      for (const n of d.notifications) {
+        const ok = el('button', { type: 'button', textContent: 'OK' });
+        ok.onclick = async () => { ok.disabled = true; await api('/api/notifications/read', 'POST', { ids: [n.id] }).catch(() => {}); pollFriends(); };
+        panel.append(el('div', { className: 'req-card note' + (/abgelehnt/.test(n.text) ? ' no' : '') }, el('small', { textContent: 'Mitteilung' }), el('p', { textContent: n.text }), el('div', { className: 'rq-btns' }, ok)));
+      }
+      panel.hidden = !panel.childElementCount;
+      // Zähler am Knopf „Freundschaften“ im Menü
+      const fb = document.querySelector('.menu button[data-act="friends"]');
+      if (fb) { fb.querySelector('b')?.remove(); const n = d.incoming.length + d.notifications.length; if (n) { fb.classList.add('bell'); fb.append(el('b', { textContent: String(n) })); } }
+      // Während des Spiels: neue Anfragen und Mitteilungen als Hinweis im Spiel
+      if (gameInst && gameInst.ui) {
+        for (const r of d.incoming) if (!shownInGame.has('r' + r.id)) { shownInGame.add('r' + r.id); gameInst.ui.notify('Freundschaftsanfrage von ' + r.from.name + ' (Pause-Menü → Freundschaften)', 'info', 6000); }
+        for (const n of d.notifications) if (!shownInGame.has('n' + n.id)) { shownInGame.add('n' + n.id); gameInst.ui.notify(n.text, /abgelehnt/.test(n.text) ? 'warn' : 'good', 6000); }
+      } else { for (const r of d.incoming) shownInGame.add('r' + r.id); for (const n of d.notifications) shownInGame.add('n' + n.id); }
+    }
+    let friendTimer = 0;
+    async function pollFriends() {
+      clearTimeout(friendTimer);
+      if (!me) { showRequests(null); return; }
+      try { showRequests(await api('/api/friends')); } catch { /* beim nächsten Mal */ }
+      friendTimer = setTimeout(pollFriends, 20000);
+    }
+
+    // ---------- Multiplayer: 2 Server, je höchstens 16 Spieler, nur mit Account ----------
+    const SRV_ICON = '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg>';
+    async function multiFlow() {
+      let timer = 0, alive = true;
+      modal('<h2>Multiplayer</h2><p class="lead" style="margin:-6px 0 14px;opacity:.85">Spiele mit anderen registrierten Spielern auf einer gemeinsamen Karte von Mallorca. Auf jedem Server sind höchstens 16 Spieler gleichzeitig.</p><div class="srv-list" id="srv-list">Lade Server …</div><p class="mp-note" id="mp-note"></p><div class="btns"><button id="m-x">Schließen</button></div>', (b) => {
+        const list = b.querySelector('#srv-list'), note = b.querySelector('#mp-note');
+        const draw = (servers) => {
+          list.replaceChildren();
+          for (const s of servers) {
+            const full = s.players >= s.max;
+            const join = el('button', { type: 'button', textContent: full ? 'Voll' : 'Beitreten', disabled: full });
+            join.onclick = () => { if (!requireLogin()) return; alive = false; clearTimeout(timer); closeModal(); chooseCharacter((who) => joinServer(s.id, who)); };
+            const bar = el('div', { className: 'bar' }, el('i', { style: 'width:' + Math.round((s.players / s.max) * 100) + '%' }));
+            const ic = el('div', { className: 'ic' }); ic.innerHTML = SRV_ICON;
+            list.append(el('div', { className: 'srv' }, ic, el('div', { className: 'nm' }, el('b', { textContent: s.name }), el('span', { className: full ? 'full' : '', textContent: '(' + s.players + ' von ' + s.max + ')' }), bar), join));
+          }
+        };
+        note.replaceChildren();
+        if (!me) {
+          const a = el('a', { textContent: 'Einloggen' }), r = el('a', { textContent: 'Registrieren' });
+          a.onclick = () => openDialog('loginDialog'); r.onclick = () => openDialog('registerDialog');
+          note.append('Nur mit registriertem Account: ', a, ' oder ', r, '.');
+        } else note.textContent = 'Im Multiplayer gibt es keine Story-Missionen und es wird nicht gespeichert. Uhrzeit und Wetter sind für alle gleich.';
+        const refresh = async () => {
+          if (!alive || qs('#modal').hidden) return;
+          try { draw((await api('/api/mp/servers')).servers); } catch (e) { list.textContent = 'Die Server sind nicht erreichbar: ' + e.message; }
+          timer = setTimeout(refresh, 4000);
+        };
+        refresh();
+        const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = () => { alive = false; clearTimeout(timer); closeModal(); };
+      });
+    }
+    async function joinServer(server, who) {
+      try {
+        const mp = await api('/api/mp/join', 'POST', { server });
+        launch({ who, mp });
+      } catch (e) { toast(e.message, 6000); }
+    }
+
+    // ---------- Vollbild: Seite ohne Adressleiste; Esc beendet das Vollbild ----------
+    const fsBtn = $('fsBtn');
+    const fsLabel = () => { fsBtn.querySelector('span').textContent = document.fullscreenElement ? 'Vollbild beenden' : 'Vollbild'; };
+    fsBtn.addEventListener('click', async () => {
+      try {
+        if (document.fullscreenElement) await document.exitFullscreen();
+        else await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+      } catch { toast('Der Browser erlaubt hier kein Vollbild. Tipp: F11 drücken.'); }
+    });
+    document.addEventListener('fullscreenchange', fsLabel);
+    if (!document.documentElement.requestFullscreen) fsBtn.hidden = true;
+
+    // Das Spiel öffnet aus seinem Admin-Menü („Admin“ oben rechts) dieses Admin-Menü der Startseite
+    window.__streetlife = { openAdmin: () => { if (me && (me.rank === 'Sysadmin' || me.rank === 'Admin')) openAdmin(); } };
 
     // Optionen mit den Reitern Audio, Grafik und Tastatur (gemeinsam mit dem Pause-Menü im Spiel: /assets/options.js)
     async function optionsFlow() {
@@ -936,18 +1151,24 @@
       if (!b) return;
       switch (b.dataset.act) {
         case 'start': startFlow(); break;
-        case 'multi': toast("Mallorca's: Street Life ist ein Einzelspieler-Spiel (1 Spieler). Multiplayer ist nicht verfügbar."); break;
+        case 'multi': multiFlow(); break;
         case 'load': loadFlow(); break;
-        case 'save': toast('Gespeichert wird im Spiel: über das Pause-Menü (Esc) oder in deiner Wohnung. Nach jeder Mission wird automatisch gespeichert (abschaltbar unter Optionen → Speichern).', 5200); break;
+        case 'save': saveFlow(); break;
         case 'friends': friendsFlow(); break;
         case 'options': optionsFlow(); break;
         case 'quit': quitFlow(); break;
         default: break;
       }
     });
-    function lockButtons() { document.querySelectorAll('.menu button[data-act="start"], .menu button[data-act="load"], .menu button[data-act="friends"]').forEach((b) => { b.classList.toggle('locked', !me); b.title = me ? '' : 'Bitte zuerst einloggen'; }); }
+    function lockButtons() { document.querySelectorAll('.menu button[data-act="start"], .menu button[data-act="load"], .menu button[data-act="save"], .menu button[data-act="friends"]').forEach((b) => { b.classList.toggle('locked', !me); b.title = me ? '' : 'Bitte zuerst einloggen'; }); }
     const _renderBar = renderBar;
-    renderBar = function () { _renderBar(); lockButtons(); };
+    let lastMe = undefined;
+    renderBar = function () {
+      _renderBar(); lockButtons();
+      // Freundschaftsanfragen abholen, sobald jemand eingeloggt ist (und beim Ausloggen ausblenden)
+      const id = me ? me.id : null;
+      if (id !== lastMe) { lastMe = id; pollFriends(); }
+    };
     renderBar();
     startLobby();
     api('/api/me').then((d) => { me = d.user; renderBar(); }).catch(() => {});

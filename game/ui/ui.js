@@ -459,6 +459,14 @@ export class UI {
   }
   hideOverlay() { this.el.over.style.display = 'none'; }
 
+  // Schwarzes Bild, das langsam aufblendet (Aufwachen nach dem Tod)
+  fadeFromBlack(ms = 1500) {
+    let f = this._fade;
+    if (!f) { f = this._fade = document.createElement('div'); f.style.cssText = 'position:absolute;inset:0;background:#000;pointer-events:none;z-index:40'; this.root.appendChild(f); }
+    f.style.transition = 'none'; f.style.opacity = '1';
+    requestAnimationFrame(() => requestAnimationFrame(() => { f.style.transition = 'opacity ' + ms + 'ms ease-in'; f.style.opacity = '0'; }));
+  }
+
   // Schlafen: Bild wird schwarz, die Uhr läuft von „from“ um dh Stunden vor; done() kommt bei schwarzem Bild
   sleepOverlay(from, dh, done) {
     const ov = this.root.querySelector('.sleepov'), sc = ov.querySelector('.sc'), sd = ov.querySelector('.sd');

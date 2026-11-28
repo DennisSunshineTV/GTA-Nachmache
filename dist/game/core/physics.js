@@ -1,6 +1,7 @@
 // Physik-Welt: statische Kollider (Kreise/Rechtecke), Bodenhöhe (inkl. Piers), Raycasts, Kollisionshilfen.
 import { SpatialHash, clamp } from '../util.js';
 import { waveHeight } from '../render/water.js';
+import { insidePool, poolSurface, poolFloor } from '../world/pools.js';
 
 const _tmp = { nx: 0, nz: 0, depth: 0 };
 
@@ -12,7 +13,23 @@ export class Physics {
     this.platforms = new SpatialHash(64);
     this.time = 0;
     this._list = [];
+    // Schwimmbecken: Boden liegt im Becken, Wasserhöhe = Beckenrand (eigene Hülle je Pool, ein Objekt steht nur in einem Hash)
+    this.pools = new SpatialHash(32);
+    this._hAt = (x, z) => this.cm.heightAt(x, z);
+    for (const p of ctx.pools || []) { const r = Math.hypot(p.w, p.d) / 2 + 0.5; this.pools.insert({ pool: p }, p.x - r, p.z - r, p.x + r, p.z + r); }
   }
+
+  // Pool an (x,z) oder null (wird sehr oft gefragt: direkt die eine Rasterzelle prüfen, ohne Hilfsfunktionen)
+  poolAt(x, z) {
+    const H = this.pools, c = H.cell;
+    const arr = H.map.get(H._key(Math.floor(x / c), Math.floor(z / c)));
+    if (!arr) return null;
+    for (let i = 0; i < arr.length; i++) { const p = arr[i].pool; if (insidePool(p, x, z)) return p; }
+    return null;
+  }
+  poolLevel(p) { return poolSurface(p, this._hAt); }
+  // Wasseroberfläche zum Schwimmen: im Pool dessen Wasserhöhe, sonst Meereshöhe (0, ohne Wellen)
+  waterSurface(x, z) { const p = this.poolAt(x, z); return p ? poolSurface(p, this._hAt) : 0; }
 
   addColliders(list) {
     for (const c of list) {
@@ -38,11 +55,13 @@ export class Physics {
     return best;
   }
 
-  // Begehbare Bodenhöhe (Gelände oder Pier)
+  // Begehbare Bodenhöhe (Gelände oder Pier; im Schwimmbecken der Beckenboden)
   groundHeight(x, z) {
     const t = this.cm.heightAt(x, z);
     const p = this.platformHeight(x, z);
-    return p > t ? p : t;
+    if (p > t) return p;
+    const pool = this.poolAt(x, z);
+    return pool ? Math.min(t, poolFloor(pool, x, z, this._hAt)) : t;
   }
 
   waterLevel(x, z) { return waveHeight(x, z, this.time, 0.7); }

@@ -200,7 +200,7 @@ export class AudioSystem {
     const inV = !!p.vehicle && p.vehicle.cls !== 'boat' && p.vehicle.cls !== 'plane';
     const damp = inV ? 0.45 : 1;
     const wave = clamp(1 - Math.abs(sd) / 140, 0, 1) * 0.5 + (p.vehicle && p.vehicle.cls === 'boat' ? 0.25 : 0);
-    this.amb.waves.g.gain.setTargetAtTime(wave * damp * (0.8 + 0.2 * Math.sin(g.time * 0.35)), t, 0.4);
+    this.amb.waves.g.gain.setTargetAtTime(wave * damp * (0.8 + 0.2 * Math.sin(this.t * 0.35)), t, 0.4);
     this.amb.rain.g.gain.setTargetAtTime(rain * 0.35 * (inV ? 0.6 : 1), t, 0.5);
     this.amb.city.g.gain.setTargetAtTime((lu && lu !== 10 ? 0.28 : 0.04) * damp, t, 0.6);
     this.amb.wind.g.gain.setTargetAtTime(0.03 + (g.atm.weatherKey === 'storm' ? 0.35 : 0.08) * (sd > 0 ? 1 : 1.3), t, 0.6);
@@ -208,7 +208,7 @@ export class AudioSystem {
     const green = sd > 40 && !lu ? 1 : lu === 2 ? 0.6 : 0;
     this.cicGain.gain.setTargetAtTime(0, t, 0.1); // (AM-Gain wird über cicG gesteuert)
     this.cicG.gain.setTargetAtTime(0.03 * green * (1 - night) * (1 - rain), t, 0.8);
-    this.crG.gain.setTargetAtTime((0.012 * green * night) * (1 + Math.sin(g.time * 18) * 0.9 > 1 ? 1 : 0.1), t, 0.05);
+    this.crG.gain.setTargetAtTime((0.012 * green * night) * (1 + Math.sin(this.t * 18) * 0.9 > 1 ? 1 : 0.1), t, 0.05);
     // Blitz → Donner
     if (g.atm.lightning > 0.9 && !this._thunder) { this._thunder = true; setTimeout(() => { this.explosion(250); this._thunder = false; }, 500 + Math.random() * 2500); }
     // Club-Bass bei Nacht
@@ -248,8 +248,8 @@ export class AudioSystem {
     }
     const vol = best < 220 ? clamp(1 / (1 + (best / 30) ** 1.5), 0, 0.6) * 0.2 * (inV ? 0.6 : 1) : 0;
     this.siren.gn.gain.setTargetAtTime(vol, t, 0.1);
-    const ph = (g.time * 0.9) % 1;
-    const f = 700 + 700 * Math.abs(Math.sin(g.time * 3.2));
+    const ph = (this.t * 0.9) % 1;
+    const f = 700 + 700 * Math.abs(Math.sin(this.t * 3.2));
     this.siren.o.frequency.setTargetAtTime(f, t, 0.03);
     void ph;
   }
@@ -272,6 +272,15 @@ export class AudioSystem {
       }
     }
     if (p.state === 'swim' && Math.random() < dt * 3) this.now((d, t) => this.S.noise(t, 0.2, 0.06, { type: 'bandpass', freq: 1200, dest: d }));
+  }
+
+  // Pause-Menü und Vollbildkarte: Hintergrundgeräusche (Meer, Wind, Stadt, Zikaden, Club, Sirenen) laufen weiter,
+  // nur Schritte und andere Spielgeräusche ruhen
+  updatePaused(dt) {
+    if (!this.ok) return;
+    this.t += dt;
+    if (this.ctx.state === 'suspended') return;
+    this._updateAmbient(dt);
   }
 
   dispose() {
