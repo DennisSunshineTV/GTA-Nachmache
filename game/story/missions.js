@@ -1,9 +1,14 @@
 // Missionen und Story von "Mallorca's: Street Life".
 import { fmtMoney, clamp } from '../util.js';
+import { BLIP } from '../ui/blips.js';
+import { charName, partnerOf } from './characters.js';
 
 // ---------- Hilfen ----------
-const names = (g) => (g.player.who === 'lucia' ? { ME: 'Lucia', P: 'Jason' } : { ME: 'Jason', P: 'Lucia' });
-const fill = (t, g) => { const n = names(g); return t.replaceAll('{ME}', n.ME).replaceAll('{P}', n.P); };
+const names = (g) => ({ ME: charName(g.player.who), P: charName(partnerOf(g.player.who)) });
+const fill = (t, g) => {
+  const n = names(g), pad = g.input.device === 'pad';   // {USE}/{AIM}: Taste passend zum Eingabegerät
+  return t.replaceAll('{ME}', n.ME).replaceAll('{P}', n.P).replaceAll('{USE}', pad ? 'Y' : 'F').replaceAll('{AIM}', pad ? 'LT' : 'rechte Maustaste');
+};
 
 function resolve(g, pos) {
   if (!pos) return null;
@@ -53,7 +58,7 @@ const S = {
   }),
 
   // Beliebiges Fahrzeug nehmen
-  enterAny: (text) => ({ t: 'enter', init(m) { m.objective(text); }, tick(m) { return !!m.g.player.vehicle; } }),
+  enterAny: (text) => ({ t: 'enter', init(m) { m.objective(fill(text, m.g)); }, tick(m) { return !!m.g.player.vehicle; } }),
 
   // Bestimmtes Fahrzeug bereitstellen und einsteigen
   getVehicle: (type, pos, text, o = {}) => ({
@@ -64,7 +69,7 @@ const S = {
       v.keep = true; v.owner = 'mission';
       if (o.locked === false) v.locked = false;
       m.veh = v; this.v = v;
-      m.mk = m.g.markers.add({ x: p.x, z: p.z, radius: 4, color: [0.3, 0.9, 1], blip: { icon: '▣', color: '#6ad1ff', big: true }, height: 22 });
+      m.mk = m.g.markers.add({ x: p.x, z: p.z, radius: 4, color: [0.3, 0.9, 1], blip: { icon: BLIP.vehicle.icon, color: BLIP.vehicle.color, big: true }, height: 22 });
       m.markers.push(m.mk);
       m.objective(fill(text, m.g));
       m.waypoint(p);
@@ -109,7 +114,7 @@ const S = {
       m.objective(fill(text, m.g), `Verbleibend: ${this.foes.length}`);
       const avg = this.foes.reduce((a, c) => ({ x: a.x + c.x / this.foes.length, z: a.z + c.z / this.foes.length }), { x: 0, z: 0 });
       this.mid = avg; m.waypoint(avg);
-      this.mk = m.g.markers.add({ x: avg.x, z: avg.z, radius: 6, color: [1, 0.2, 0.2], blip: { icon: '☠', color: '#ff4d4d', big: true }, height: 26 }); m.markers.push(this.mk);
+      this.mk = m.g.markers.add({ x: avg.x, z: avg.z, radius: 6, color: [1, 0.2, 0.2], blip: { icon: BLIP.enemy.icon, color: BLIP.enemy.color, big: true }, height: 26 }); m.markers.push(this.mk);
     },
     tick(m) {
       const left = this.foes.filter((c) => c.alive).length;
@@ -133,7 +138,7 @@ const S = {
     tick(m, dt) {
       const g = m.g;
       const near = dist(pp(g), this.p) < (o.radius ?? 4) + 1;
-      if (o.needAim && !g.player.aiming) { m.sub(near ? 'Ziehe deine Waffe! (Rechte Maustaste)' : ''); return false; }
+      if (o.needAim && !g.player.aiming) { m.sub(near ? fill('Ziehe deine Waffe! ({AIM})', g) : ''); return false; }
       if (!near) { if (this.started) m.sub('Zurück in den Bereich!'); return false; }
       if (!this.started) { this.started = true; o.onStart?.(m); }
       this.acc += dt;
@@ -159,7 +164,7 @@ const S = {
   until: (cond, text, sub = '') => ({ t: 'until', init(m) { m.objective(fill(text, m.g), sub); }, tick(m, dt) { return cond(m.g, m, dt); } }),
 
   // Wellen von Verstärkung (Polizei) während die Mission läuft
-  reward: (n) => ({ t: 'reward', init(m) { m.reward += n; }, tick() { return true; } }),
+  reward: (n) => ({ t: 'reward', amount: n, init(m) { m.reward += n; }, tick() { return true; } }),
 };
 
 const poi = (id, o = {}) => ({ poi: id, ...o });
@@ -167,22 +172,22 @@ const poi = (id, o = {}) => ({ poi: id, ...o });
 // ---------- Missionen ----------
 const MISSIONS = [
   {
-    id: 'm1', title: 'Willkommen in Palma', giver: 'Marco', reward: 500, start: poi('palma.center'), startNow: true, friend: ['marco', 8],
+    id: 'm1', title: 'Willkommen in Palma', giver: 'Marco', desc: 'Marco wartet im Hafen von Palma. Schnapp dir irgendein Fahrzeug, fahre zum Hafen und lerne den Schmuggler kennen.', reward: 500, start: poi('palma.center'), startNow: true, friend: ['marco', 8],
     steps: [
       S.dialog([
-        ['{P} (Anruf)', '{ME}, endlich! Wir sind in Palma – ohne Geld, aber mit Plänen. Marco wartet im Hafen auf dich.'],
-        ['{P} (Anruf)', 'Schnapp dir einfach irgendein Auto. Drück F in der Nähe eines Fahrzeugs, um einzusteigen.'],
+        ['{P} (Anruf)', 'Endlich! Wir sind auf Mallorca – ohne Geld, aber mit Plänen. Marco wartet im Hafen von Palma auf dich.'],
+        ['{P} (Anruf)', 'Der Kleinwagen vor deiner Garage reicht dafür. Drück F in der Nähe eines Fahrzeugs, um einzusteigen.'],
       ]),
-      S.enterAny('Steige in ein Fahrzeug (F)'),
+      S.enterAny('Steige in ein Fahrzeug ({USE})'),
       S.goto(poi('palma.harbor', { snap: true }), 'Fahre zum Hafen von Palma', { radius: 12, inVehicle: true }),
       S.dialog([
-        ['Marco', 'Du musst {ME} sein. Don Rafael sucht Leute, die nicht zu viele Fragen stellen.'],
+        ['Marco', 'Du musst der Neue sein. Don Rafael sucht Leute, die nicht zu viele Fragen stellen.'],
         ['Marco', 'Fang klein an: Ich brauche einen gelben Veloce GT aus Platja de Palma. Der Besitzer wird nicht begeistert sein.'],
       ]),
     ],
   },
   {
-    id: 'm2', title: 'Schnelle Autos', giver: 'Marco', reward: 3500, start: poi('palma.harbor', { dx: 25 }), friend: ['marco', 8],
+    id: 'm2', title: 'Schnelle Autos', giver: 'Marco', desc: 'Hole den gelben Veloce GT in Platja de Palma ab und bringe ihn möglichst heil zu Marcos Garage am Hafen. Die Besitzer sind dir auf den Fersen.', reward: 3500, start: poi('palma.harbor', { dx: 25 }), friend: ['marco', 8],
     steps: [
       S.dialog([['Marco', 'Der Veloce steht am Hotel in Platja de Palma. Bring ihn heil zu meiner Garage am Hafen – ich zahle nach Zustand.']]),
       S.getVehicle('sports', poi('arenal.center', { snap: true, dx: 20 }), 'Hole den gelben Sportwagen in Platja de Palma', { paint: 5 }),
@@ -198,14 +203,14 @@ const MISSIONS = [
     ],
   },
   {
-    id: 'm3', title: 'Kleiner Fisch', giver: 'Marco', reward: 12000, start: poi('palma.harbor', { dx: -25 }), friend: ['marco', 10],
+    id: 'm3', title: 'Kleiner Fisch', giver: 'Marco', desc: 'Raube die Joyería Oro in der Innenstadt von Palma aus: Waffe ziehen, im Laden bleiben und danach der Polizei entkommen.', reward: 12000, start: poi('palma.harbor', { dx: -25 }), friend: ['marco', 10],
     steps: [
       S.dialog([
         ['Marco', 'Die Joyería Oro in der Innenstadt. Teure Uhren, schlechte Alarmanlage.'],
-        ['{P}', 'Ich warte im Fluchtwagen. Zieh deine Waffe und sei schnell, {ME}.'],
+        ['{P}', 'Ich warte im Fluchtwagen. Zieh deine Waffe und sei schnell.'],
       ]),
       S.goto(poi('palma.jewelry'), 'Gehe zur Joyería Oro', { radius: 3.5, onFoot: true }),
-      S.hold(poi('palma.jewelry'), 8, 'Raube den Juwelier aus: Waffe ziehen (rechte Maustaste) und im Laden bleiben', { radius: 5, needAim: true, onStart: (m) => { m.g.police.crime('robbery', m.g.player, m.g.player.x, m.g.player.z, true); m.g.police.setWanted(2); m.g.ui.notify('Alarm! Die Polizei ist unterwegs', 'warn'); } }),
+      S.hold(poi('palma.jewelry'), 8, 'Raube den Juwelier aus: Waffe ziehen ({AIM}) und im Laden bleiben', { radius: 5, needAim: true, onStart: (m) => { m.g.police.crime('robbery', m.g.player, m.g.player.x, m.g.player.z, true); m.g.police.setWanted(2); m.g.ui.notify('Alarm! Die Polizei ist unterwegs', 'warn'); } }),
       S.reward(4000),
       S.escape(2, 'Entkomme der Polizei'),
       S.goto(poi('palma.harbor', { snap: true, dx: -20 }), 'Bringe die Beute zu Marcos Garage', { radius: 12 }),
@@ -213,7 +218,7 @@ const MISSIONS = [
     ],
   },
   {
-    id: 'm4', title: 'Küstenstraße', giver: 'Marco', reward: 6500, start: poi('palma.harbor', { dz: 30 }), friend: ['marco', 8],
+    id: 'm4', title: 'Küstenstraße', giver: 'Marco', desc: 'Liefere mit dem Motorrad ein Päckchen nach Sóller – du hast nur 260 Sekunden – und fahre danach zurück zum Hafen. Rafaels Konkurrenz ist hinter dir her.', reward: 6500, start: poi('palma.harbor', { dz: 30 }), friend: ['marco', 8],
     steps: [
       S.dialog([['Marco', 'Ein Päckchen in Sóller – schnell. Nimm das Motorrad, die Küstenstraße ist kurvig. Und sei gewarnt: Rafaels Konkurrenz weiß Bescheid.']]),
       S.getVehicle('moto', poi('palma.harbor', { snap: true, dz: 45 }), 'Nimm das Motorrad am Hafen', { paint: 1 }),
@@ -226,7 +231,7 @@ const MISSIONS = [
     ],
   },
   {
-    id: 'm5', title: 'Ware aus Ibiza', giver: 'Tomeu', reward: 18000, start: poi('palma.pier0'), friend: ['tomeu', 14],
+    id: 'm5', title: 'Ware aus Ibiza', giver: 'Tomeu', desc: 'Fahre mit Tomeus Schnellboot nach Ibiza, lade die Ware in Platja d’en Bossa auf und bringe sie in das Versteck auf Cabrera. Rivalen verfolgen dich.', reward: 18000, start: poi('palma.pier0'), friend: ['tomeu', 14],
     steps: [
       S.dialog([
         ['Tomeu', 'Ibiza, Platja d’en Bossa. Dort liegt eine Yacht mit Ware, die niemand sehen soll. Nimm mein Schnellboot.'],
@@ -238,11 +243,11 @@ const MISSIONS = [
       S.hold(poi('platjabossa.center'), 5, 'Lade die Ware auf (Boot im Bereich halten)', { radius: 260 }),
       S.driveTo(poi('cabrera-port.harbor'), 'Bringe die Ware zum Versteck auf Cabrera', { radius: 120, air: true }),
       S.run((g) => g.enemies.clearGroup('m5')),
-      S.dialog([['Tomeu', 'Cabrera ist verlassen – perfekt. Wir sind im Geschäft, {ME}.']]),
+      S.dialog([['Tomeu', 'Cabrera ist verlassen – perfekt. Wir sind im Geschäft.']]),
     ],
   },
   {
-    id: 'm6', title: 'Rivalen', giver: 'Marco', reward: 9000, start: poi('palma.harbor', { dx: 40, dz: 10 }), friend: ['marco', 10],
+    id: 'm6', title: 'Rivalen', giver: 'Marco', desc: 'Die Rivalen haben im Polígono Son Castelló eine Lagerhalle besetzt. Schalte alle Gegner aus und nimm den Koffer mit.', reward: 9000, start: poi('palma.harbor', { dx: 40, dz: 10 }), friend: ['marco', 10],
     steps: [
       S.dialog([['Marco', 'Die Rivalen haben im Polígono Son Castelló eine Lagerhalle übernommen. Räum sie aus – und nimm den Koffer mit.']]),
       S.goto(poi('poligon.center'), 'Fahre zum Polígono Son Castelló', { radius: 90 }),
@@ -254,10 +259,10 @@ const MISSIONS = [
     ],
   },
   {
-    id: 'm7', title: 'Die Finca', giver: 'Don Rafael', reward: 25000, start: poi('palma.harbor', { dx: -45, dz: 10 }), friend: ['rafael', 12],
+    id: 'm7', title: 'Die Finca', giver: 'Don Rafael', desc: 'Dringe in die abgelegene Finca ein, schalte die Wachen aus und durchsuche das Haus nach den Unterlagen für Don Rafael. Danach kommt die Polizei.', reward: 25000, start: poi('palma.harbor', { dx: -45, dz: 10 }), friend: ['rafael', 12],
     steps: [
       S.dialog([
-        ['Don Rafael', '{ME}, mein Freund. Ein Geschäftspartner hat Unterlagen in seiner Finca – Beweise, die mir schaden könnten.'],
+        ['Don Rafael', 'Mein Freund, ein Geschäftspartner hat Unterlagen in seiner Finca – Beweise, die mir schaden könnten.'],
         ['Don Rafael', 'Hol sie dir. Die Wachen schießen sofort.'],
       ]),
       S.goto((g) => { const f = g.ctx.pois.find((p) => p.type === 'finca'); return { x: f.x - 90, z: f.z - 90 }; }, 'Fahre zur abgelegenen Finca', { radius: 80 }),
@@ -269,7 +274,7 @@ const MISSIONS = [
     ],
   },
   {
-    id: 'm8', title: 'Flug nach Menorca', giver: 'Elena', reward: 22000, start: poi('airport.apron'), friend: ['elena', 14],
+    id: 'm8', title: 'Flug nach Menorca', giver: 'Elena', desc: 'Fliege die Cessna vom Flughafen Palma nach Maó auf Menorca und lande sicher, damit Elenas Kunde die Tasche bekommt.', reward: 22000, start: poi('airport.apron'), friend: ['elena', 14],
     steps: [
       S.dialog([
         ['Elena', 'Ich bin Elena, Fluglotsin mit Nebenjob. Ein Kunde wartet in Maó – mit einer Tasche, die nicht auf eine Fähre passt.'],
@@ -283,11 +288,11 @@ const MISSIONS = [
     ],
   },
   {
-    id: 'm9', title: 'Der große Coup', giver: 'Don Rafael', reward: 150000, start: poi('palma.harbor', { dz: -35 }), friend: ['rafael', 16],
+    id: 'm9', title: 'Der große Coup', giver: 'Don Rafael', desc: 'Das Banco de Mallorca: Rüste dich mit Schutzweste und Maschinenpistole oder Gewehr aus, räume den Tresor aus und flüchte mit dem Boot nach Cabrera.', reward: 150000, start: poi('palma.harbor', { dz: -35 }), friend: ['rafael', 16],
     steps: [
       S.dialog([
         ['Don Rafael', 'Das Banco de Mallorca. Der Tresor im Keller ist voll – und unsere Zeit ist knapp.'],
-        ['{P}', 'Kauf dir eine anständige Waffe und Schutzweste, {ME}. Das wird laut.'],
+        ['{P}', 'Kauf dir eine anständige Waffe und Schutzweste. Das wird laut.'],
       ]),
       S.until((g) => g.player.armor >= 50 && ['smg', 'rifle', 'shotgun'].some((w) => g.player.weapons[w]), 'Rüste dich aus: Schutzweste (50+) und Maschinenpistole/Gewehr', 'Waffenladen (Armería) in Palma'),
       S.goto(poi('palma.bank'), 'Gehe zur Bank', { radius: 4, onFoot: true }),
@@ -301,11 +306,11 @@ const MISSIONS = [
     ],
   },
   {
-    id: 'm10', title: 'Finale: Formentor', giver: 'Don Rafael', reward: 50000, start: poi('cabrera-port.harbor', { dx: 10 }), friend: ['rafael', 0],
+    id: 'm10', title: 'Finale: Formentor', giver: 'Don Rafael', desc: 'Don Rafael hat dich in eine Falle gelockt. Fahre zum Leuchtturm am Cap de Formentor und besiege ihn und seine Männer.', reward: 50000, start: poi('cabrera-port.harbor', { dx: 10 }), friend: ['rafael', 0],
     steps: [
       S.dialog([
         ['Don Rafael (Anruf)', 'Ihr habt zu viel gesehen. Kommt zum Leuchtturm am Cap de Formentor – allein. Dann reden wir.'],
-        ['{P}', 'Das ist eine Falle, {ME}. Aber wir kommen nicht anders aus der Sache raus.'],
+        ['{P}', 'Das ist eine Falle. Aber wir kommen nicht anders aus der Sache raus.'],
       ]),
       S.getVehicle('luxury', poi('palma.harbor', { snap: true, dx: 60 }), 'Nimm den Wagen (Estrella L) in Palma', { paint: 0 }),
       S.driveTo(poi('formentor.lighthouse'), 'Fahre zum Leuchtturm am Cap de Formentor', { radius: 110 }),
@@ -362,7 +367,7 @@ export class MissionManager {
     if (!d) return;
     const p = resolve(g, d.start);
     this.startMk = g.markers.add({
-      x: p.x, z: p.z, radius: 3.2, color: [1, 0.35, 0.85], height: 40, blip: { icon: 'M', color: '#ff5de6', big: true },
+      x: p.x, z: p.z, radius: 3.2, color: [1, 0.35, 0.85], height: 40, blip: { icon: BLIP.quest.icon, color: BLIP.quest.color, big: true },
       onEnter: () => this.start(d.id), hint: d.title,
     });
     this.startMk.label = d.title;
@@ -379,7 +384,7 @@ export class MissionManager {
       objective: (text, sub = '') => g.ui.setObjective(def.title, text, sub),
       sub: (s) => { if (g.ui.objective) { g.ui.objective.sub = s; g.ui.el.obj.querySelector('.s').textContent = s; } },
       waypoint: (p, quiet) => { const mm = g.ui.minimap; if (!mm.waypoint || mm.waypoint.mission || !quiet) { mm.waypoint = { x: p.x, z: p.z, mission: true }; if (!quiet) mm.routeT = 0; } else { mm.waypoint.x = p.x; mm.waypoint.z = p.z; } },
-      marker: (p, r, text, o = {}) => { const mk = g.markers.add({ x: p.x, z: p.z, radius: r, color: o.color || [1, 0.85, 0.2], blip: { icon: o.icon || '●', color: '#ffd24a', big: true }, height: 34 }); m.markers.push(mk); return mk; },
+      marker: (p, r, text, o = {}) => { const mk = g.markers.add({ x: p.x, z: p.z, radius: r, color: o.color || [1, 0.85, 0.2], blip: { icon: o.icon || BLIP.target.icon, color: BLIP.target.color, big: true }, height: 34 }); m.markers.push(mk); return mk; },
       dropMarkers: () => { for (const k of m.markers) g.markers.remove(k); m.markers.length = 0; m.mk = null; },
       fail: (reason) => this.fail(reason),
     };
@@ -434,7 +439,7 @@ export class MissionManager {
       setTimeout(() => g.ui.dialog([['Abspann', 'Mallorca’s: Street Life – du hast die Hauptgeschichte abgeschlossen. Die Insel ist weiter offen: Erkunde Ibiza, Menorca, Formentera, kaufe Geschäfte und genieße die Straßen.']], null), 4200);
     }
     this.refreshStartMarker();
-    g.saveToServer?.();
+    g.autoSave?.();
   }
 
   fail(reason) {
@@ -467,6 +472,40 @@ export class MissionManager {
   friendList() {
     const n = names(this.game);
     return Object.entries(this.friends).map(([k, f]) => ({ ...f, name: k === 'partner' ? n.P : f.name })).filter((f) => f.level > 0 || f.name === n.P);
+  }
+
+  // Ziel (Weltposition) einer Quest für den Wegpunkt: laufende Quest → aktuelles Ziel, sonst Startpunkt
+  questTarget(id) {
+    const def = this.defs.find((d) => d.id === id);
+    if (!def) return null;
+    const m = this.cur;
+    if (m && m.def.id === id) {
+      const st = m.step;
+      if (st && st.p) return { x: st.p.x, z: st.p.z };
+      if (st && st.mid) return { x: st.mid.x, z: st.mid.z };
+      if (st && st.v && st.v.alive) return { x: st.v.x, z: st.v.z };
+      return null;
+    }
+    const p = resolve(this.game, def.start);
+    return p ? { x: p.x, z: p.z } : null;
+  }
+
+  // Alle Quests in Spielreihenfolge. Status: done (abgeschlossen) · active (läuft) · open (kann gestartet werden) · locked
+  questList() {
+    const avail = this.available();
+    const g = this.game;
+    return this.defs.map((d, i) => {
+      const done = this.done.has(d.id);
+      const active = !!this.cur && this.cur.def.id === d.id;
+      const state = done ? 'done' : active ? 'active' : (avail && avail.id === d.id) ? 'open' : 'locked';
+      const bonus = d.steps.reduce((a, st) => a + (st.t === 'reward' ? st.amount || 0 : 0), 0);
+      return {
+        id: d.id, nr: i + 1, title: d.title, giver: d.giver || '', desc: d.desc || '', reward: d.reward + bonus, state,
+        prev: i > 0 ? this.defs[i - 1].title : '',
+        objective: active && g.ui.objective ? [g.ui.objective.desc, g.ui.objective.sub].filter(Boolean).join(' · ') : '',
+        target: state === 'done' || state === 'locked' ? null : this.questTarget(d.id),
+      };
+    });
   }
 
   serialize() { return { done: [...this.done], friends: Object.fromEntries(Object.entries(this.friends).map(([k, f]) => [k, f.level])) }; }

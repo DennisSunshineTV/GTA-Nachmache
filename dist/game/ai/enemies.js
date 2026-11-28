@@ -93,12 +93,12 @@ export class EnemyManager {
     for (let i = this.vehicles.length - 1; i >= 0; i--) {
       const v = this.vehicles[i];
       if (!v.alive) { this.vehicles.splice(i, 1); continue; }
-      if (v.exploded || v.burning > 0 || !v.driver || !v.driver.alive) { v.ctl.throttle = 0; v.ctl.brake = 1; continue; }
+      if (v.exploded || v.burning > 0 || !v.driver || !v.driver.alive) { v.rail = null; v.ctl.throttle = 0; v.ctl.brake = 1; continue; }
       const d = Math.hypot(px - v.x, pz - v.z);
       if (d > 600) { this._removeVehicle(v); this.vehicles.splice(i, 1); continue; }
       const a = v.ai;
       if (v.cls === 'boat') this._steerBoat(v, px, pz, d, dt);
-      else g.police._steer(v, px, pz, d, dt, true);
+      else g.police.pursue(v, px, pz, d, dt, d < 55 && g.physics.lineOfSight(v.x, v.y + 1.2, v.z, px, py, pz));
       // Schützen
       a.shootT -= dt;
       if (a.shootT <= 0 && d < 40) {

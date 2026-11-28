@@ -11,6 +11,8 @@ import { TrafficManager } from './ai/traffic.js';
 import { PedManager } from './ai/peds.js';
 import { PoliceManager } from './ai/police.js';
 import { Markers, Pickups } from './world/interactives.js';
+import { HomeBase } from './world/homebase.js';
+import { Services } from './world/servicesrt.js';
 import { clamp, wrapPi, fmtMoney } from './util.js';
 import { WEATHER_NAMES } from './render/sky.js';
 import { WeatherFx } from './render/weatherfx.js';
@@ -30,7 +32,7 @@ export class Game {
     this.controlsEnabled = true;
     this.characters = [];
     this.money = opts.money ?? 5000;
-    this.stats = { kills: 0, distance: 0, crimes: 0, playMs: 0, missionsDone: 0 };
+    this.stats = { kills: 0, distance: 0, crimes: 0, playMs: 0, missionsDone: 0, days: 0, maxWanted: 0 };
     this.timeScale = 1 / 100;   // Spielstunden pro Sekunde (1 Std = 100 s)
     this.god = false; this.godVehicles = false;
     this.wreckMat = new THREE.MeshStandardMaterial({ color: 0x1a1816, roughness: 0.9, metalness: 0.2 });
@@ -45,8 +47,11 @@ export class Game {
     this.pickups = new Pickups(this);
 
     // Detail-Chunks → Kollider registrieren
-    this.chunks.onDetailLoaded = (chunk) => { this.physics.addColliders(chunk.detail.colliders); this.physics.addPlatforms(chunk.detail.platforms); };
-    this.chunks.onDetailUnloaded = (chunk) => { this.physics.removeColliders(chunk.detail.colliders); this.physics.removePlatforms(chunk.detail.platforms); };
+    this.chunks.onDetailLoaded = (chunk) => this.physics.addColliders(chunk.detail.colliders);
+    this.chunks.onDetailUnloaded = (chunk) => this.physics.removeColliders(chunk.detail.colliders);
+    this.physics.addPlatforms(this.ctx.platforms);   // Stege tragen von Anfang an, auch außerhalb geladener Kacheln
+    this.home = new HomeBase(this);                  // Strandhaus: Böden, Haustür, Garagentor, eigene Fahrzeuge
+    this.services = new Services(this);              // Tankstellen (Zapfpistole) und Werkstätten (Tor, Reparatur)
 
     this.fx = new WeatherFx(this);
     this.traffic = new TrafficManager(this);
@@ -60,11 +65,26 @@ export class Game {
   }
 
   // ---------- Start ----------
+  // Neues Spiel: Start am eigenen Strandhaus (auf der Terrasse vor der Tür, Blick aufs Meer);
+  // ohne Strandhaus am Hafen von Palma. Spielstände starten dort, wo gespeichert wurde.
   startPosition() {
+    const home = this.ctx.home;
+    if (home) return { x: home.door.x, z: home.door.z, heading: home.rot, road: null };
     const poi = this.ctx.pois.find((p) => p.id === 'palma.harbor') || this.ctx.pois.find((p) => p.type === 'city');
     const nr = this.ctx.net.nearest(poi.x, poi.z, 250, (r) => r.kind === 'promenade' || r.kind === 'street');
     const x = nr ? nr.x : poi.x, z = nr ? nr.z : poi.z;
     return { x, z, heading: nr ? Math.atan2(nr.road.pts[Math.min(nr.i + 1, nr.road.pts.length - 1)][0] - nr.road.pts[nr.i][0], nr.road.pts[Math.min(nr.i + 1, nr.road.pts.length - 1)][1] - nr.road.pts[nr.i][1]) : 0, road: nr };
+  }
+
+  // Multiplayer: Start am Hafen von Palma, jeder Spieler an einer eigenen Stelle entlang der Promenade
+  mpStartPosition(id = 0) {
+    const poi = this.ctx.pois.find((p) => p.id === 'palma.harbor') || this.ctx.pois.find((p) => p.type === 'city');
+    const nr = this.ctx.net.nearest(poi.x, poi.z, 250, (r) => r.kind === 'promenade' || r.kind === 'street');
+    if (!nr) return { x: poi.x, z: poi.z, heading: 0, road: null };
+    const r = nr.road, s = Math.max(5, Math.min(r.len - 5, r.cum[nr.i] + ((id % 9) - 4) * 3.5));
+    const p = this.ctx.net.pointAt(r, s, {});
+    const side = (r.w / 2 + Math.max(1, r.sw) * 0.5);
+    return { x: p.x - p.dz * side, z: p.z + p.dx * side, heading: Math.atan2(p.dx, p.dz), road: nr };
   }
 
   createPlayer(who, pos) {
@@ -100,9 +120,12 @@ export class Game {
   // ---------- Fahrzeuge betreten / verlassen ----------
   enterVehicle(ch, v, seat = 0) {
     if (!v.alive || v.exploded || v.burning > 0) return false;
+    if (ch.isPlayer && ch.nozzle) this.services.release();
+    // Eigene Fahrzeuge (in der Garage geparkt oder gekauft) lösen nie eine Fahndung aus
+    const own = ch.isPlayer && v.ownedIdx != null;
     if (seat === 0 && v.driver && v.driver !== ch) {
       this.ejectDriver(v, true);
-      if (ch.isPlayer) this.police.crime('carjack', ch, v.x, v.z);
+      if (ch.isPlayer && !own) this.police.crime('carjack', ch, v.x, v.z);
     }
     ch.state = 'vehicle'; ch.vehicle = v; ch.seat = seat;
     ch.intent.mx = ch.intent.mz = 0;
@@ -118,7 +141,8 @@ export class Game {
       this.ui?.vehicleEntered?.(v);
       this.audio?.enterVehicle(v);
       this.radio?.onEnter(v);
-      if (v.type === 'police') this.police.crime('copCar', ch, v.x, v.z);
+      if (v.type === 'police' && !own) this.police.crime('copCar', ch, v.x, v.z);
+      if (own) this.ui?.notify('Dein eigenes Fahrzeug', 'info');
       if (v.cls === 'plane') v.airSpeed = Math.max(v.airSpeed || 0, 0);
     } else ch.showInVehicle = false;
     this.missions?.onEnterVehicle?.(ch, v);
@@ -164,6 +188,7 @@ export class Game {
     if (ch.isPlayer) {
       v.ctl.throttle = 0; v.ctl.steer = 0; v.ctl.brake = 0.6; v.engineOn = false; v.sirenOn = false;
       v.owner = 'abandoned';
+      ch.holsterSidearm();
       this.ui?.vehicleExited?.(v);
       this.audio?.exitVehicle(v);
       this.radio?.onExit();
@@ -200,6 +225,7 @@ export class Game {
   interact() {
     const p = this.player;
     if (!p.alive) return;
+    if (this.services.interact(p)) return;
     const m = this.markers.interactable(p);
     if (m) { m.onInteract(m); return; }
     const v = this.vehicles.nearest(p.x, p.z, 3.7, (q) => q.alive && !q.exploded && q.burning <= 0 && !(q.driver && q.driver.isPlayer) && (q.cls !== 'plane' || q.y < this.physics.groundHeight(q.x, q.z) + 4));
@@ -291,8 +317,20 @@ export class Game {
     this.missions?.onKill?.(ch, source);
   }
 
+  // Harter Unfall: Insassen (Spieler) verlieren etwas Gesundheit – ein Unfall allein tötet nie (Untergrenze 25)
+  crashHurt(v, speed) {
+    const p = this.player;
+    if (!p || !p.alive || (v.driver !== p && !v.passengers.includes(p)) || speed < 7.5 || this.god) return;
+    const prot = v.cls === 'bike' ? 1.6 : v.cls === 'tank' ? 0.3 : 1;
+    const dmg = Math.min(70, Math.pow(speed - 7.5, 1.25) * 2.2 * prot);
+    const floor = Math.min(p.hp, 25);
+    p.hp = Math.max(floor, p.hp - dmg);
+    this.ui?.damaged(dmg);
+  }
+
   onVehicleCrash(v, speed, other) {
     const p = this.player;
+    this.crashHurt(v, speed);
     if (v.driver === p && other && other.owner === 'traffic') {
       if (speed > 6) { this.traffic.panic(other, 8); if (Math.random() < 0.5) this.police.crime('vandal', p, v.x, v.z); }
     }
@@ -302,7 +340,7 @@ export class Game {
 
   onExplosion(x, z, r, source) { if (source === this.player || source?.driver === this.player) this.police.crime('explosion', this.player, x, z, true); this.peds.hearShot(x, z, 110, source); this.missions?.onExplosion?.(x, z, r, source); }
 
-  onWantedChanged(w, up) { this.ui?.wantedChanged?.(w, up); this.missions?.onWanted?.(w); }
+  onWantedChanged(w, up) { if (w > (this.stats.maxWanted || 0)) this.stats.maxWanted = w; this.ui?.wantedChanged?.(w, up); this.missions?.onWanted?.(w); }
 
   onHeadshot(shooter, target) { if (shooter === this.player) this.ui?.notify('Kopfschuss!', 'info'); }
 
@@ -310,10 +348,12 @@ export class Game {
   wasted() {
     if (this.dying) return;
     this.dying = true;
-    this.ui?.showOverlay('WASTED', 'Du bist gestorben', 4200);
+    const drowned = this.player?.drowned;
+    if (this.player) this.player.drowned = false;
+    this.ui?.showOverlay('WASTED', drowned ? 'Ertrunken' : 'Du bist gestorben', 4200);
     this.audio?.wastedSound();
     this.missions?.onPlayerDied?.();
-    setTimeout(() => this.respawn('hospital'), 4300);
+    setTimeout(() => this.respawn('home'), 4300);   // nach dem Tod wacht man im eigenen Haus auf
   }
 
   busted() {
@@ -328,26 +368,59 @@ export class Game {
     const p = this.player;
     const fine = Math.min(this.money, where === 'police' ? 500 + Math.floor(this.money * 0.04) : Math.min(2500, Math.floor(this.money * 0.05)));
     this.money -= fine;
-    let poi = this.ctx.pois.find((q) => q.type === (where === 'police' ? 'police' : 'clinic') && q.id.startsWith('palma')) || this.ctx.pois.find((q) => q.type === 'city');
-    const nr = this.ctx.net.nearest(poi.x, poi.z, 120);
-    const x = (nr ? nr.x : poi.x) + 2, z = (nr ? nr.z : poi.z) + 2;
+    const home = where === 'home' ? this.ctx.home : null;
+    let x, z;
+    if (home) { x = home.door.x; z = home.door.z; }
+    else {
+      const poi = this.ctx.pois.find((q) => q.type === (where === 'police' ? 'police' : 'clinic') && q.id.startsWith('palma')) || this.ctx.pois.find((q) => q.type === 'city');
+      const nr = this.ctx.net.nearest(poi.x, poi.z, 120);
+      x = (nr ? nr.x : poi.x) + 2; z = (nr ? nr.z : poi.z) + 2;
+    }
     this.police.clear(true);
     if (p.vehicle) this.exitVehicle(p, true);
-    p.alive = true; p.hp = p.maxHp; p.armor = 0; p.state = 'ground'; p.deadT = 0;
+    p.alive = true; p.hp = p.maxHp; p.armor = 0; p.state = 'ground'; p.deadT = 0; p.climb = null;
+    p.stamina = 1; p.exhausted = false; p.o2 = 1; p.diveDepth = 0;
+    this.combat.swings.length = 0;
     p.x = x; p.z = z; p.y = this.physics.groundHeight(x, z); p.vx = p.vz = 0;
+    if (home) { p.h = home.rot; p.camYaw = p.h; }   // Blick aufs Meer
     if (p.human) p.human.deadT = 0;
     p.invuln = 2;
     p.camInit = false;
     this.dying = false;
     this.ui?.hideOverlay();
-    this.ui?.notify(where === 'police' ? `Strafe bezahlt: ${fmtMoney(fine)}` : `Behandlungskosten: ${fmtMoney(fine)}`, 'warn');
+    this.ui?.notify(where === 'police' ? `Strafe bezahlt: ${fmtMoney(fine)}` : home ? `Zu Hause aufgewacht – Behandlungskosten: ${fmtMoney(fine)}` : `Behandlungskosten: ${fmtMoney(fine)}`, 'warn');
     this.missions?.onRespawn?.();
+  }
+
+  // Schlafen im eigenen Bett bis zur gewählten Uhrzeit: Bild wird schwarz, die Uhr läuft vor, danach volle Gesundheit.
+  // Geht der Schlaf über Mitternacht, beginnt ein neuer Spieltag (Statistik „Tage im Spiel“).
+  sleep(hour) {
+    if (this.net || this.sleeping) return false;
+    const p = this.player, from = this.atm.hour;
+    let dh = ((hour - from) % 24 + 24) % 24;
+    if (dh < 0.5) dh += 24;
+    this.sleeping = true;
+    this.controlsEnabled = false;
+    this.ui?.sleepOverlay(from, dh, () => {
+      if (from + dh >= 24) this.stats.days = (this.stats.days || 0) + 1;
+      this.atm.hour = (from + dh) % 24;
+      p.hp = p.maxHp; p.stamina = 1; p.exhausted = false;
+      this.shops?.advanceHours?.(dh);
+      this.weatherT = 0;                 // nach dem Aufwachen kann sich das Wetter geändert haben
+      this.controlsEnabled = true;
+      this.sleeping = false;
+      const hh = Math.floor(this.atm.hour), mm = Math.round((this.atm.hour - hh) * 60);
+      this.ui?.banner(hour < 12 ? 'Guten Morgen!' : hour < 18 ? 'Ausgeschlafen' : 'Guten Abend!', `Tag ${(this.stats.days || 0) + 1} · ${String(hh).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')} Uhr`, 3.2);
+      this.ui?.notify('Gut geschlafen – Gesundheit aufgefüllt', 'good');
+    });
+    return true;
   }
 
   teleport(x, z, y = null) {
     const p = this.player;
     const v = p.vehicle;
     const gy = y ?? this.physics.groundHeight(x, z);
+    p.climb = null;
     if (v) { v.x = x; v.z = z; v.y = gy + 1; v.vx = v.vz = 0; v.speed = 0; if (v.cls === 'plane' || v.cls === 'heli') { v.y = gy + 120; } }
     else { p.x = x; p.z = z; p.y = Math.max(gy, 0); p.vx = p.vz = 0; p.state = 'ground'; }
     p.camInit = false;
@@ -359,15 +432,26 @@ export class Game {
     this._frame++;
     const input = this.input;
     input.pollPad();
-    dt = Math.min(dt, 0.05);
+    const real = Math.min(dt, 0.05);
+    this.ui?.padui?.update(real);                 // Controller-Bedienung der Oberfläche (verbraucht ihre Tasten zuerst)
+    dt = real * (this.ui?.padui?.slowmo ?? 1);    // Waffenrad und Fahrzeugmenü bremsen die Welt ab
     if (!this.paused) {
       this.time += dt;
       this.physics.time += dt;
       this.stats.playMs += dt * 1000;
-      this.atm.hour = (this.atm.hour + dt * this.timeScale * (this.timeFrozen ? 0 : 1)) % 24;
-      this._weather(dt);
+      if (this.net) this.net.applyClock(this.atm);        // Multiplayer: Uhrzeit und Wetter kommen vom Server
+      else {
+        // Spieluhr: um Mitternacht beginnt ein neuer Spieltag (Statistik „Tage im Spiel“)
+        let nh = this.atm.hour + dt * this.timeScale * (this.timeFrozen ? 0 : 1);
+        if (nh >= 24) { nh -= 24; this.stats.days = (this.stats.days || 0) + 1; }
+        this.atm.hour = nh;
+        this._weather(dt);
+      }
       this.player.update(dt, input);
+      // Zurückgelegte Strecke (zu Fuß und im Fahrzeug; Sprünge durch Teleport zählen nicht)
+      { const o = this.player.vehicle || this.player; if (this._lp) { const d = Math.hypot(o.x - this._lp.x, o.z - this._lp.z); if (d < 40) this.stats.distance = (this.stats.distance || 0) + d; } this._lp = { x: o.x, z: o.z }; }
       this.vehicles.update(dt);
+      this.player.resyncSeat();                       // Spielfigur sitzt auf dem bereits bewegten Fahrzeug
       // Figuren (Spieler aktualisiert sich selbst)
       for (let i = this.characters.length - 1; i >= 0; i--) {
         const c = this.characters[i];
@@ -379,6 +463,8 @@ export class Game {
       this.police.update(dt);
       this.enemies?.update(dt);
       this.shops?.update(dt);
+      this.home.update(dt);
+      this.services.update(dt);
       this.combat.update(dt);
       this.markers.update(dt);
       this.pickups.update(dt);
@@ -387,9 +473,10 @@ export class Game {
       this._housekeeping(dt);
       this.audio?.update(dt);
       this.radio?.update(dt);
-    }
+    } else this.audio?.updatePaused?.(real);   // im Menü laufen die Hintergrundgeräusche weiter
+    this.net?.update(real);                         // Mitspieler bewegen sich auch, während das eigene Menü offen ist
     this.player.updateCamera(this.paused ? 0 : dt);
-    this.ui?.update(dt);
+    this.ui?.update(real);
     input.endFrame();
   }
 
@@ -430,6 +517,16 @@ export class Game {
     if (this.freeCam) { const f = this.freeCam; cam.position.set(f.x, f.y, f.z); cam.rotation.set(f.pitch, f.yaw, 0, 'YXZ'); cam.updateMatrixWorld(); }
     this.atm.update(dt, cam.position, cam);
     this.sea.update(dt, cam);
+    // Pools in der Nähe: Loch im Gelände über dem Becken (die nächsten zuerst)
+    this._poolT = (this._poolT ?? 0) - dt;
+    if (this._poolT <= 0) {
+      this._poolT = 0.3;
+      const cx = cam.position.x, cz = cam.position.z, near = [];
+      for (const p of this.ctx.pools) { const d2 = (p.x - cx) ** 2 + (p.z - cz) ** 2; if (d2 < 240 * 240) near.push([d2, p]); }
+      near.sort((a, b) => a[0] - b[0]);
+      this.mats.setPools(near.map((e) => e[1]));
+    }
+    this.under?.update(dt, cam);
     this.mats.setNight(this.atm.night, this.atm.w.rain);
     this.props.setNight(this.atm.night);
     this.engine.renderer.toneMappingExposure = this.atm.exposure;
@@ -453,7 +550,7 @@ export class Game {
       stats: this.stats, owned: this.owned,
       missions: this.missions?.serialize?.() ?? null,
       friends: this.friends ?? null,
-      vehicle: p.vehicle && p.vehicle.owner === 'player' ? { type: p.vehicle.type, paint: p.vehicle.paintIdx } : null,
+      vehicle: p.vehicle && p.vehicle.owner === 'player' ? { type: p.vehicle.type, paint: p.vehicle.paintIdx, ownedIdx: p.vehicle.ownedIdx } : null,
       savedAt: Date.now(),
     };
   }
@@ -475,6 +572,7 @@ export class Game {
     if (d.vehicle) {
       const v = this.vehicles.spawn(d.vehicle.type, d.x + Math.sin(p.h) * 4, d.z + Math.cos(p.h) * 4, p.h, { owner: 'abandoned', paint: d.vehicle.paint });
       v.keep = true;
+      if (d.vehicle.ownedIdx != null && this.owned.vehicles[d.vehicle.ownedIdx]) v.ownedIdx = d.vehicle.ownedIdx;
     }
   }
 
@@ -502,23 +600,38 @@ export class Game {
     return v;
   }
 
-  async saveToServer() {
+  // Auto-Save nach jeder geschafften Mission; der Spieler kann ihn unter Optionen → Speichern ausschalten
+  get autoSaveOn() { return this.ui?.panels?.settings?.autosave !== false; }
+  async autoSave() {
+    if (!this.autoSaveOn) return false;
+    return this.saveToServer(true);
+  }
+
+  // Speicherplatz 0 = Auto-Save, 1–10 = eigene Speicherstände
+  async saveToServer(auto = false, slot = null) {
+    const target = auto ? 0 : (slot ?? this.saveSlot ?? 1);
     try {
-      const r = await fetch('/api/save', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ save: this.serialize() }) });
-      if (!r.ok) throw new Error((await r.json()).error || 'Fehler');
-      this.ui?.notify('Spiel gespeichert', 'good');
+      const r = await fetch('/api/save?slot=' + target, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ save: this.serialize() }) });
+      const reply = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(reply.error || 'Fehler');
+      // Alte Server-Version ohne Speicherplätze: Der Stand liegt nur in einem einzigen Platz
+      if (reply.slot === undefined) this.ui?.notify('Der Server kennt noch keine Speicherplätze. Bitte api/index.php und api/lib.php aktualisieren.', 'warn');
+      this.lastSaveAt = Date.now(); this.lastSaveAuto = !!auto;
+      if (!auto) this.saveSlot = target;
+      this.ui?.notify(auto ? 'Automatisch gespeichert' : `Gespeichert: Speicherstand ${target}`, 'good');
       return true;
     } catch (e) { this.ui?.notify('Speichern fehlgeschlagen: ' + e.message, 'warn'); return false; }
   }
 
-  async loadFromServer() {
+  async loadFromServer(slot) {
     try {
-      const r = await fetch('/api/save');
+      const r = await fetch('/api/save' + (slot === undefined ? '' : '?slot=' + slot));
       const d = await r.json();
       if (!d.save) { this.ui?.notify('Kein Speicherstand vorhanden', 'warn'); return false; }
       if (this.player.vehicle) this.exitVehicle(this.player, true);
       this.restore(d.save);
-      this.ui?.notify('Speicherstand geladen', 'good');
+      if (slot > 0) this.saveSlot = slot;
+      this.ui?.notify(slot === 0 ? 'Auto-Save geladen' : 'Speicherstand geladen', 'good');
       return true;
     } catch (e) { this.ui?.notify('Laden fehlgeschlagen', 'warn'); return false; }
   }
@@ -532,11 +645,15 @@ export class Game {
     const sc = this.atm.sun.shadow.camera; sc.left = -this.atm.shadowRange; sc.right = this.atm.shadowRange; sc.top = this.atm.shadowRange; sc.bottom = -this.atm.shadowRange; sc.updateProjectionMatrix();
     const sz = this.engine.q.shadow || 1024;
     if (this.atm.sun.shadow.mapSize.x !== sz) { this.atm.sun.shadow.mapSize.set(sz, sz); this.atm.sun.shadow.map?.dispose(); this.atm.sun.shadow.map = null; }
+    // Schatten aus (Optionen → Grafik oder Qualitätsstufe ohne Schatten): Sonne wirft keine Schatten, die Shader werden neu gebaut
+    this.atm.sun.castShadow = this.engine.shadowsOn;
     this.chunks.detailBuilder.density = this.engine.q.detail >= 1 ? 1 : this.engine.q.detail;
   }
 
   dispose() {
     this.stopped = true;
+    this.net?.dispose(); this.net = null;
+    this.under?.dispose?.();
     this.input.dispose();
     this.audio?.dispose?.();
     this.radio?.dispose?.();

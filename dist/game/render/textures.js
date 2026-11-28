@@ -331,10 +331,11 @@ export function makeRoofTexture() {
 }
 
 // ---------- Straßen-Atlas ----------
-// 16 Streifen × 128 px, Höhe 256 px (entspricht 12 m Straßenlänge)
-export const ROAD_COLS = 16;
+// 19 Streifen × 128 px, Höhe 256 px (entspricht 12 m Straßenlänge). Asphalt, Feldweg, Bankett, Gehweg und Pflaster
+// berechnet der Straßen-Shader (render/roadshader.js) pro Pixel; der Atlas dient dort nur noch als Grundfarbe.
+export const ROAD_COLS = 19;
 export const ROAD_TILE_M = 12;
-export const ROAD_STRIP = { street: 0, main: 1, rural: 2, scenic: 3, hw: 4, avenue: 5, alley: 6, track: 7, sidewalk: 8, zebra: 9, plain: 10, prom: 11, taxi: 12, runway: 13, quay: 14, apron: 15 };
+export const ROAD_STRIP = { street: 0, main: 1, rural: 2, scenic: 3, hw: 4, avenue: 5, alley: 6, track: 7, sidewalk: 8, zebra: 9, plain: 10, prom: 11, taxi: 12, runway: 13, quay: 14, apron: 15, deck: 16, shoulder: 17, pavers: 18 };
 
 export function makeRoadAtlas() {
   const W = 128 * ROAD_COLS, H = 256;
@@ -390,16 +391,30 @@ export function makeRoadAtlas() {
     for (let k = 0; k < 9; k++) { g.fillStyle = '#efeee6'; g.fillRect(x + 6 + k * 13.6, 0, 7.6, H); }
   });
   strip('plain', (x, w) => asphalt(x, w, 64));
+  // Promenade: moderner Feldweg – verdichteter heller Splitt mit feiner Körnung, zwei leicht verdichtete Laufspuren
+  // und eine helle Randeinfassung (keine Wellenstreifen mehr)
   strip('prom', (x, w) => {
-    g.fillStyle = '#e2d6bd'; g.fillRect(x, 0, w, H);
-    // Wellenmuster (schwarz-weiß-beige)
-    for (let y = -20; y < H + 20; y += 32) {
-      g.strokeStyle = '#6b5f4e'; g.lineWidth = 7; g.beginPath();
-      for (let u = 0; u <= w; u += 4) { const yy = y + Math.sin((u / w) * Math.PI * 4) * 9; if (u === 0) g.moveTo(x + u, yy); else g.lineTo(x + u, yy); }
-      g.stroke();
+    g.fillStyle = '#cfc2a3'; g.fillRect(x, 0, w, H);
+    const img = g.getImageData(x, 0, w, H); const d = img.data;
+    for (let i = 0; i < d.length; i += 4) { const n = (rnd() - 0.5) * 24; d[i] += n; d[i + 1] += n * 0.95; d[i + 2] += n * 0.85; }
+    g.putImageData(img, x, 0);
+    // verdichtete Laufspuren (etwas heller und glatter)
+    for (const fr of [0.32, 0.68]) {
+      const gr = g.createLinearGradient(x + w * (fr - 0.13), 0, x + w * (fr + 0.13), 0);
+      gr.addColorStop(0, 'rgba(255,248,230,0)'); gr.addColorStop(0.5, 'rgba(255,248,230,0.16)'); gr.addColorStop(1, 'rgba(255,248,230,0)');
+      g.fillStyle = gr; g.fillRect(x + w * (fr - 0.13), 0, w * 0.26, H);
     }
-    grain(g, 1, 1, 0, rnd);
-    g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(x, 0, 5, H); g.fillRect(x + w - 5, 0, 5, H);
+    // Kieselchen und kleine Flecken
+    for (let i = 0; i < 320; i++) {
+      const v = 120 + rnd() * 110, sz = 1 + rnd() * 2.4;
+      g.fillStyle = `rgba(${v | 0},${(v * 0.94) | 0},${(v * 0.82) | 0},${0.35 + rnd() * 0.4})`;
+      g.fillRect(x + 9 + rnd() * (w - 18), rnd() * H, sz, sz * (0.7 + rnd() * 0.6));
+    }
+    for (let i = 0; i < 9; i++) { g.fillStyle = 'rgba(120,102,72,0.10)'; g.fillRect(x + 12 + rnd() * (w - 40), rnd() * H, 10 + rnd() * 26, 4 + rnd() * 12); }
+    // Randeinfassung aus hellem Beton mit Fuge zum Splitt
+    g.fillStyle = '#bdb6a6'; g.fillRect(x, 0, 7, H); g.fillRect(x + w - 7, 0, 7, H);
+    g.fillStyle = 'rgba(70,58,40,0.38)'; g.fillRect(x + 7, 0, 2, H); g.fillRect(x + w - 9, 0, 2, H);
+    g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(x + 1, 0, 2, H); g.fillRect(x + w - 3, 0, 2, H);
   });
   strip('taxi', (x, w) => { asphalt(x, w, 70); line(x, w, 0.5, 5, '#f2c94c'); });
   strip('runway', (x, w) => {
@@ -418,6 +433,23 @@ export function makeRoadAtlas() {
     g.fillStyle = '#f2c94c'; g.fillRect(x + 4, 0, 4, H);
   });
   strip('apron', (x, w) => { asphalt(x, w, 118); g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 2; for (let y = 0; y <= H; y += 128) { g.beginPath(); g.moveTo(x, y); g.lineTo(x + w, y); g.stroke(); } });
+  // Holzbohlen (Terrasse und Zufahrt am Strandhaus): Dielen längs der Fahrtrichtung mit Stößen und Maserung
+  strip('deck', (x, w) => {
+    g.fillStyle = '#6d4f30'; g.fillRect(x, 0, w, H);
+    for (let k = 0; k < 8; k++) {
+      const sh = (rnd() - 0.5) * 38;
+      g.fillStyle = `rgb(${Math.round(172 + sh)},${Math.round(132 + sh * 0.85)},${Math.round(88 + sh * 0.65)})`;
+      g.fillRect(x + k * 16 + 1, 0, 14, H);
+      g.fillStyle = 'rgba(70,44,22,.22)';
+      for (let j = 0; j < 5; j++) g.fillRect(x + k * 16 + 2 + rnd() * 11, 0, 1, H);
+      for (let y = rnd() * 100; y < H; y += 80 + rnd() * 120) { g.fillStyle = 'rgba(32,20,10,.6)'; g.fillRect(x + k * 16 + 1, y, 14, 2); }
+    }
+    g.fillStyle = 'rgba(26,16,8,.75)';
+    for (let k = 0; k <= 8; k++) g.fillRect(x + k * 16, 0, 2, H);
+    g.fillStyle = 'rgba(255,240,210,.05)'; g.fillRect(x, 0, w, H);
+  });
+  strip('shoulder', (x, w) => { g.fillStyle = '#6f7a4a'; g.fillRect(x, 0, w, H); });
+  strip('pavers', (x, w) => { g.fillStyle = '#8f8c86'; g.fillRect(x, 0, w, H); });
   const t = tex(c, { aniso: 8 });
   t.wrapS = THREE.ClampToEdgeWrapping;
   return t;

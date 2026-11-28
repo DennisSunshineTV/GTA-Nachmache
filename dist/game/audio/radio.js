@@ -290,6 +290,8 @@ export class Radio {
     if (!silent) this.game.ui?.radioShow(st.name, st.genre);
   }
 
+  get stationName() { return this.idx >= 0 ? STATIONS[this.idx].name : 'Aus'; }
+
   next(dir = 1) {
     const n = STATIONS.length + 1;
     let i = this.idx + dir;

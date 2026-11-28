@@ -34,6 +34,11 @@ export class Character {
     this.fireCd = 0;
     this.reloadT = 0;
     this.meleeT = 0; this.throwT = 0;
+    // Nahkampf und Klettern: Tritt, Ausholen (angekündigter Schlag), Blocken, Ausweichen
+    this.kickT = 0; this.windT = 0; this.heavyHit = false;
+    this.blocking = false; this.dodgeT = 0; this.dodgeSide = 1;
+    this.faceLock = null;             // feste Blickrichtung (Blocken, Ausweichen)
+    this.climb = null;                // laufendes Klettern: { t, dur, from, to, peak }
     this.aimPitch = 0;
     this.speedH = 0;
     this.radius = 0.36;
@@ -127,6 +132,7 @@ export class Character {
     if (!this.alive) return;
     this.alive = false;
     this.hp = 0;
+    this.climb = null; this.blocking = false; this.windT = 0; this.dodgeT = 0;
     if (this.vehicle) this.game.exitVehicle(this, true);
     this.state = 'dead';
     this.deadT = 0;
@@ -144,6 +150,9 @@ export class Character {
     this.fireCd = Math.max(0, this.fireCd - dt);
     this.meleeT = Math.max(0, this.meleeT - dt * 2.6);
     this.throwT = Math.max(0, this.throwT - dt * 2.2);
+    this.kickT = Math.max(0, this.kickT - dt * 2.2);
+    this.windT = Math.max(0, this.windT - dt);
+    this.dodgeT = Math.max(0, this.dodgeT - dt);
     if (this.reloadT > 0) {
       this.reloadT -= dt;
       if (this.reloadT <= 0) {
@@ -153,6 +162,7 @@ export class Character {
     }
     if (this.state === 'dead') { this.deadT += dt; this._updateVisual(dt); return; }
     if (this.state === 'vehicle') { this._followVehicle(dt); this._updateVisual(dt); return; }
+    if (this.climb) { this._climb(dt); this._updateVisual(dt); return; }
     const I = this.intent;
     const physics = g.physics;
     const px = this.x, pz = this.z;
@@ -179,7 +189,8 @@ export class Character {
     this.vz = damp(this.vz, wz, accel, dt);
 
     // Blickrichtung
-    if (I.aim && (I.ax || I.az)) this.h = dampAngle(this.h, Math.atan2(I.ax, I.az), 16, dt);
+    if (this.faceLock !== null) this.h = dampAngle(this.h, this.faceLock, 20, dt);
+    else if (I.aim && (I.ax || I.az)) this.h = dampAngle(this.h, Math.atan2(I.ax, I.az), 16, dt);
     else if (mag > 0.01 && this.speed > 0.3) this.h = dampAngle(this.h, Math.atan2(this.vx, this.vz), 11, dt);
     else if (I.face !== undefined && I.face !== null) this.h = dampAngle(this.h, I.face, 8, dt);
 
@@ -187,7 +198,9 @@ export class Character {
     let nx = this.x + this.vx * dt, nz = this.z + this.vz * dt;
     const ng = physics.groundHeight(nx, nz);
     const onGround = this.state === 'ground';
-    if (onGround && ng - this.y > 0.7 && ng > -1) {
+    // Schwimmer gleiten nicht unter einen Steg (und werden nicht hinaufgehoben): hinauf geht es nur durch Klettern
+    const atPier = this.state === 'swim' && physics.platformHeight(nx, nz) - this.y > 0.7;
+    if (atPier || (onGround && ng - this.y > 0.7 && ng > -1)) {
       // zu steil/hoch: seitlich gleiten versuchen
       const gx = physics.groundHeight(nx, this.z), gz = physics.groundHeight(this.x, nz);
       nx = gx - this.y <= 0.7 ? nx : this.x; nz = gz - this.y <= 0.7 ? nz : this.z;
@@ -204,7 +217,10 @@ export class Character {
     const gh = physics.groundHeight(this.x, this.z);
     if (this.swimming) {
       const wave = waveHeight(this.x, this.z, physics.time, 0.6);
-      const target = wave - 1.0;
+      // Tauchen (nur Spieler): diveDepth Meter unter der Schwimmlage, nie unter den Grund
+      // Beim Kraulen liegt der Körper flach an der Oberfläche (Rücken und Arme sichtbar)
+      const crawl = (this.diveDepth || 0) > 0.3 ? 0 : clamp(this.speedH / 2.4, 0, 1) * 0.62;
+      const target = Math.max(wave - 1.0 + crawl - (this.diveDepth || 0), gh + 0.35);
       this.y += (target - this.y) * Math.min(1, dt * 8);
       this.vy = 0;
     } else if (this.state === 'air') {
@@ -227,6 +243,22 @@ export class Character {
     // Fuß-Staub / Schritte
     this._updateVisual(dt);
     void px; void pz; void wasSwim;
+  }
+
+  // Klettern: auf einer festen Bahn über das Hindernis bzw. auf die Kante (ohne Kollision, Ziel ist vorher geprüft)
+  _climb(dt) {
+    const c = this.climb;
+    c.t += dt;
+    const k = Math.min(1, c.t / c.dur);
+    const ease = (v) => v * v * (3 - 2 * v);
+    // Erst hoch, dann hinüber; beim Überklettern anschließend wieder hinunter
+    const along = ease(c.ledge ? clamp((k - 0.4) / 0.6, 0, 1) : clamp((k - 0.15) / 0.75, 0, 1));
+    this.x = lerp(c.from.x, c.to.x, along); this.z = lerp(c.from.z, c.to.z, along);
+    if (c.ledge) this.y = lerp(c.from.y, c.to.y, ease(Math.min(1, k / 0.65)));
+    else this.y = lerp(c.from.y, c.to.y, k) + Math.max(0, c.peak - (c.from.y + c.to.y) / 2) * Math.sin(Math.PI * k);
+    this.vx = this.vz = this.vy = 0; this.speedH = 0;
+    this.intent.jump = false;
+    if (k >= 1) { this.climb = null; this.y = c.to.y; this.state = 'ground'; }
   }
 
   _followVehicle(dt) {
@@ -265,9 +297,18 @@ export class Character {
       holding: !!gun && !I.aim,
       dead: this.state === 'dead',
       swim: this.state === 'swim',
+      dive: this.state === 'swim' && (this.diveDepth || 0) > 0.6,
+      diveDir: this.diveDir || 0,
       driving: this.state === 'vehicle',
       crouch: this.crouch,
       punch: this.meleeT,
+      heavy: this.heavyHit,
+      kick: this.kickT,
+      windup: this.windT,
+      block: this.blocking,
+      dodge: this.dodgeT,
+      dodgeSide: this.dodgeSide,
+      climb: this.climb ? Math.min(1, this.climb.t / this.climb.dur) : null,
       throw: this.throwT,
       wheel: this.vehicle ? this.vehicle.steerAngle : 0,
       sit: !!this.anim.sit,

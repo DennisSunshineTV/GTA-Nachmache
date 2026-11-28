@@ -38,9 +38,14 @@ function rayRect(o, d, cx, cz, hw, hl, h, y0, y1, maxT) {
   return t0;
 }
 
+// Mit Controller holen Gegner vor dem Schlag so lange (s) sichtbar aus – Zeit zum Blocken, Ausweichen oder Kontern
+const WINDUP = 0.45;
+const DODGE = 0.4;      // Dauer des Ausweichschritts; so lange gehen Schläge ins Leere
+
 export class Combat {
   constructor(game) {
     this.game = game;
+    this.swings = [];   // angekündigte Schläge gegen den Spieler: { ch, W }
     this.grenades = [];
     this.gMat = new THREE.MeshStandardMaterial({ color: 0x3d4a2f, roughness: 0.6 });
     this.gGeo = new THREE.SphereGeometry(0.06, 8, 6);
@@ -91,28 +96,131 @@ export class Combat {
 
   melee(ch) {
     const W = ch.weapon;
-    if (ch.fireCd > 0 || ch.meleeT > 0.2) return false;
-    ch.fireCd = W.rate; ch.meleeT = 1;
+    if (ch.fireCd > 0 || ch.meleeT > 0.2 || ch.windT > 0) return false;
+    ch.fireCd = W.rate;
     const f = ch.fwd;
     const I = ch.intent;
-    const fx = I.aim ? I.ax : f.x, fz = I.aim ? I.az : f.z;
+    const best = this._meleeTarget(ch, W.range + 0.4, I.aim ? I.ax : f.x, I.aim ? I.az : f.z);
+    if (best && best.isPlayer && this.game.input.device === 'pad') {
+      ch.windT = WINDUP; ch.fireCd = W.rate + WINDUP;
+      this.swings.push({ ch, W });
+      return true;
+    }
+    ch.meleeT = 1; ch.heavyHit = false;
+    this.game.audio?.punch(ch);
+    if (best) this._meleeHit(ch, best, W.dmg, 3.5);
+    return true;
+  }
+
+  // Nächste Figur in Reichweite und im Blickkegel (Richtung fx/fz, cone = Mindest-Kosinus)
+  _meleeTarget(ch, range, fx, fz, cone = 0.35) {
     const l = Math.hypot(fx, fz) || 1;
-    let best = null, bd = W.range + 0.4;
+    let best = null, bd = range;
     for (const c of this.game.allCharacters()) {
       if (c === ch || !c.alive || c.state === 'vehicle') continue;
       const dx = c.x - ch.x, dz = c.z - ch.z, d = Math.hypot(dx, dz);
-      if (d > W.range + 0.4 || Math.abs(c.y - ch.y) > 1.5) continue;
-      if ((dx * fx + dz * fz) / (l * (d || 1)) < 0.35) continue;
-      if (d < bd) { bd = d; best = c; }
+      if (d > range || Math.abs(c.y - ch.y) > 1.5) continue;
+      if ((dx * fx + dz * fz) / (l * (d || 1)) < cone) continue;
+      if (d <= bd) { bd = d; best = c; }
     }
-    this.game.audio?.punch(ch);
-    if (best) {
-      best.hurt(W.dmg * (0.85 + Math.random() * 0.3), ch);
-      best.vx += (best.x - ch.x) / (bd || 1) * 3.5; best.vz += (best.z - ch.z) / (bd || 1) * 3.5;
-      this.game.effects.puff(best.x, best.y + 1.4, best.z, [0.9, 0.9, 0.9]);
-      this.game.onGunshot?.(ch, null, 12);
+    return best;
+  }
+
+  _meleeHit(ch, best, dmg, push, knock = false) {
+    const g = this.game;
+    if (best.dodgeT > 0) return false;                       // ausgewichen
+    const dx = best.x - ch.x, dz = best.z - ch.z, d = Math.hypot(dx, dz) || 1;
+    ch.engagedT = best.engagedT = g.time;                    // beide sind jetzt im Nahkampf
+    // Blocken wirkt nur, wenn die Figur dem Angreifer zugewandt ist
+    if (best.blocking && -(dx * Math.sin(best.h) + dz * Math.cos(best.h)) / d > 0.1) {
+      best.blockedAt = g.time; best.blockedBy = ch;
+      ch.fireCd = Math.max(ch.fireCd, 0.9);
+      g.audio?.block(best);
+      best.hurt(dmg * 0.12, ch);
+      return false;
     }
+    best.hurt(dmg * (0.85 + Math.random() * 0.3), ch);
+    best.vx += (dx / d) * push; best.vz += (dz / d) * push;
+    if (knock && best.alive && best.state === 'ground') { best.state = 'air'; best.vy = 2.8; best.windT = 0; }
+    g.effects.puff(best.x, best.y + 1.4, best.z, [0.9, 0.9, 0.9]);
+    g.onGunshot?.(ch, null, 12);
     return true;
+  }
+
+  // Nahkampf auf Tastendruck: 'light' = Schlag (jeder dritte in Folge ein Tritt), 'heavy' = schwerer Angriff, 'counter' = Konter.
+  // Mit Schusswaffe in der Hand wird mit Fäusten und Füßen gekämpft, die Waffe bleibt ausgerüstet.
+  strike(ch, kind = 'light', foe = null) {
+    if (!ch.alive || ch.state !== 'ground' || ch.climb) return false;
+    if (kind !== 'counter' && (ch.fireCd > 0 || ch.meleeT > 0.2 || ch.kickT > 0.2)) return false;
+    const W = ch.weapon?.melee ? ch.weapon : WEAPONS.fists;
+    const heavy = kind !== 'light';
+    // sanft auf den nächsten Gegner ausrichten
+    foe = foe || this._meleeTarget(ch, W.range + 0.8, Math.sin(ch.h), Math.cos(ch.h), -0.2);
+    if (foe) ch.h = Math.atan2(foe.x - ch.x, foe.z - ch.z);
+    ch.combo = this.game.time - (ch.comboT ?? -9) < 1.2 ? (ch.combo || 0) + 1 : 0;
+    ch.comboT = this.game.time;
+    const kick = W.id === 'fists' && (kind === 'heavy' || (kind === 'light' && ch.combo % 3 === 2));
+    ch.kickT = kick ? 1 : 0; ch.meleeT = kick ? 0 : 1;
+    ch.heavyHit = heavy;
+    ch.fireCd = heavy ? W.rate * 2 : W.rate;
+    this.game.audio?.punch(ch);
+    const reach = W.range + (kind === 'counter' ? 1.3 : heavy ? 0.8 : 0.5);
+    const target = foe && Math.hypot(foe.x - ch.x, foe.z - ch.z) <= reach ? foe : null;
+    if (target) this._meleeHit(ch, target, W.dmg * (heavy ? 2.2 : kick ? 1.35 : 1), heavy ? 7.5 : 3.5, heavy);
+    return true;
+  }
+
+  // Gegner im Nahkampf (≤ 3,2 m): wer angreift, gerade mit dem Spieler kämpft oder ihm feindlich gesinnt ist
+  opponent(p) {
+    let best = null, bd = 3.2;
+    for (const c of this.game.allCharacters()) {
+      if (c === p || !c.alive || c.state === 'vehicle' || Math.abs(c.y - p.y) > 1.5) continue;
+      const d = Math.hypot(c.x - p.x, c.z - p.z);
+      if (d >= bd) continue;
+      const mode = c.ai?.mode;
+      if (mode === 'flee' || mode === 'cower') continue;
+      if (mode === 'fight' || c.hostile || this.game.time - (c.engagedT ?? -99) < 4) { best = c; bd = d; }
+    }
+    return best;
+  }
+
+  // Holt gerade jemand zum Schlag gegen die Figur aus?
+  incoming(p) { return this.swings.some((s) => s.ch.alive && s.ch.windT > 0 && Math.hypot(s.ch.x - p.x, s.ch.z - p.z) < 3); }
+
+  // Ausweich-Taste: Läuft gerade ein Schlag gegen die Figur (oder wurde er eben geblockt), wird gekontert, sonst ausgewichen
+  evade(p, mx = 0, mz = 0) {
+    if (!p.alive || p.state !== 'ground' || p.dodgeT > 0) return null;
+    const near = (c) => !!c && c.alive && Math.hypot(c.x - p.x, c.z - p.z) < 3;
+    const i = this.swings.findIndex((s) => near(s.ch));
+    const attacker = i >= 0 ? this.swings[i].ch : this.game.time - (p.blockedAt ?? -9) < 0.35 && near(p.blockedBy) ? p.blockedBy : null;
+    if (attacker) {
+      if (i >= 0) { attacker.windT = 0; this.swings.splice(i, 1); }
+      p.blockedBy = null;
+      this.strike(p, 'counter', attacker);
+      attacker.fireCd = Math.max(attacker.fireCd, 1.2);
+      return 'counter';
+    }
+    // ohne Angriff: Schritt in Stickrichtung, ohne Richtung nach hinten
+    const m = Math.hypot(mx, mz);
+    p.dodgeDir = m > 0.3 ? { x: mx / m, z: mz / m } : { x: -Math.sin(p.h), z: -Math.cos(p.h) };
+    p.dodgeSide = p.dodgeDir.x * Math.cos(p.h) - p.dodgeDir.z * Math.sin(p.h) >= 0 ? -1 : 1;
+    p.dodgeT = DODGE;
+    this.game.audio?.throwSound(p);
+    return 'dodge';
+  }
+
+  // Ausgeholte Schläge treffen, sobald die Zeit abgelaufen ist (wenn der Spieler noch in Reichweite ist)
+  _updateSwings() {
+    for (let i = this.swings.length - 1; i >= 0; i--) {
+      const { ch, W } = this.swings[i];
+      if (ch.alive && ch.state === 'ground' && ch.windT > 0) continue;
+      this.swings.splice(i, 1);
+      if (!ch.alive || ch.state !== 'ground') { ch.windT = 0; continue; }
+      ch.meleeT = 1; ch.heavyHit = false;
+      this.game.audio?.punch(ch);
+      const p = this.game.player;
+      if (p.alive && p.state !== 'vehicle' && Math.hypot(p.x - ch.x, p.z - ch.z) <= W.range + 0.6 && Math.abs(p.y - ch.y) < 1.5) this._meleeHit(ch, p, W.dmg, 3.5);
+    }
   }
 
   // Nächster Treffer entlang eines Strahls (ohne Schaden): { t, kind, target }
@@ -185,6 +293,7 @@ export class Combat {
   }
 
   update(dt) {
+    this._updateSwings();
     const physics = this.game.physics;
     for (let i = this.grenades.length - 1; i >= 0; i--) {
       const g = this.grenades[i];
@@ -224,6 +333,7 @@ export class Combat {
       const k = 1 - d / (radius * 1.2);
       if (v.exploded) { v.vy += 4 * k; continue; }
       v.damage(dmg * k * 2.2, source);
+      v.rail = null;   // die Druckwelle wirft das Fahrzeug aus der Spur
       const l = d || 1;
       v.vx += ((v.x - x) / l) * 9 * k; v.vz += ((v.z - z) / l) * 9 * k;
       if (k > 0.5) { v.grounded = false; v.vy = 3 + 5 * k; v.yawRate += (Math.random() - 0.5) * 3; }

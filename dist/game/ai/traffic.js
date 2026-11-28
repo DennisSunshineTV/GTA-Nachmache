@@ -1,7 +1,7 @@
 // Straßenverkehr: Fahrzeuge folgen Fahrspuren, halten Abstand, bremsen für Hindernisse; geparkte Autos.
-import { clamp, wrapPi, lerp } from '../util.js';
 import { Character } from '../entities/character.js';
-import { Router, laneTarget, projectOnRoad } from './router.js';
+import { Router, laneTarget } from './router.js';
+import { newRail, laneOffset, plan, poseAhead, curveLimit, attachRail } from './rail.js';
 
 const URBAN = new Set(['street', 'avenue', 'promenade', 'alley', 'quay']);
 const pickW = (rnd, table) => { let t = 0; for (const [, w] of table) t += w; let r = rnd() * t; for (const [k, w] of table) { r -= w; if (r <= 0) return k; } return table[0][0]; };
@@ -57,7 +57,7 @@ export class TrafficManager {
     const grp = this.roadKindGroup(r);
     const fwd = Math.random() < 0.5;
     const s = fwd ? r.cum[nr.i] + (r.cum[nr.i + 1] - r.cum[nr.i]) * nr.t : r.len - (r.cum[nr.i] + (r.cum[nr.i + 1] - r.cum[nr.i]) * nr.t);
-    const lanes = r.lanes >= 4 ? (Math.random() < 0.5 ? 0.14 : 0.37) * r.w : r.lanes >= 2 ? r.w * 0.25 : 0;
+    const lanes = laneOffset(r);
     const t = laneTarget(g.ctx.net, r, fwd, s, lanes, {});
     // Platz prüfen
     for (const v of g.vehicles.list) if (Math.hypot(v.x - t.px, v.z - t.pz) < 14) return null;
@@ -73,7 +73,8 @@ export class TrafficManager {
     v.driver = drv; v.engineOn = true;
     g.addCharacter(drv);
     const limit = r.speed * (0.8 + Math.random() * 0.25) * (type === 'bus' || type === 'truck' ? 0.85 : type === 'sports' ? 1.1 : 1);
-    v.ai = { kind: 'traffic', road: r, fwd, s, lane: lanes, limit, next: null, panic: 0, moving: true, blocked: 0, group: grp, police };
+    v.ai = { kind: 'traffic', limit, panic: 0, moving: true, blocked: 0, ghost: 0, pass: 0, loose: 0, group: grp, police };
+    v.rail = newRail(r, fwd, s, lanes, limit * 0.5);
     v.speed = limit * 0.5; v.vx = Math.sin(v.h) * limit * 0.5; v.vz = Math.cos(v.h) * limit * 0.5;
     this.cars.push(v);
     return v;
@@ -111,7 +112,7 @@ export class TrafficManager {
   release(v) {
     let i = this.cars.indexOf(v); if (i >= 0) this.cars.splice(i, 1);
     i = this.parked.indexOf(v); if (i >= 0) this.parked.splice(i, 1);
-    v.ai = null;
+    v.ai = null; v.rail = null;
   }
 
   update(dt) {
@@ -133,9 +134,10 @@ export class TrafficManager {
       const v = this.cars[i];
       if (!v.alive || !v.ai) { this.cars.splice(i, 1); continue; }
       const d = Math.hypot(v.x - px, v.z - pz);
-      if (d > 340 || (v.exploded && v.wreckT > 45)) { this._remove(v); this.cars.splice(i, 1); continue; }
+      // weit weg, ausgebrannt oder nach einem Unfall lange abseits der Straße liegen geblieben
+      if (d > 340 || (v.exploded && v.wreckT > 45) || (v.ai.loose > 30 && d > 90) || v.ai.gone) { this._remove(v); this.cars.splice(i, 1); continue; }
       if (v.exploded || v.burning > 0) { v.ai.moving = false; continue; }
-      if (!v.driver || !v.driver.alive) { v.ai.moving = false; v.ctl.throttle = 0; v.ctl.brake = 1; continue; }
+      if (!v.driver || !v.driver.alive) { v.ai.moving = false; v.rail = null; v.ctl.throttle = 0; v.ctl.brake = 1; continue; }
       this._drive(v, dt);
     }
     for (let i = this.parked.length - 1; i >= 0; i--) {
@@ -152,86 +154,77 @@ export class TrafficManager {
   }
 
   _drive(v, dt) {
-    const g = this.game, net = g.ctx.net, a = v.ai, ctl = v.ctl;
-    // Straße wählen, falls keine
-    if (!a.road) return;
-    a.s = projectOnRoad(net, a.road, v.x, v.z, a.s, a.fwd);
-    // Ende erreicht → nächste Straße
-    if (a.road.len - a.s < 4) {
-      if (!a.next) a.next = this._chooseNext(a);
-      if (a.next) { a.road = a.next.road; a.fwd = a.next.fwd; a.s = 0.5; a.next = null; a.lane = this._laneFor(a.road, a.lane); }
-      else { a.s = a.road.len; }
-    }
-    // Zielpunkt voraus
-    const speed = Math.max(0, v.speed);
-    const look = 6 + speed * 0.6;
-    let road = a.road, fwd = a.fwd, sT = a.s + look;
-    if (sT > road.len) {
-      if (!a.next) a.next = this._chooseNext(a);
-      if (a.next) { sT -= road.len; road = a.next.road; fwd = a.next.fwd; sT = Math.min(sT, road.len); }
-      else sT = road.len;
-    }
-    const off = a.panic > 0 ? 0 : a.lane;
-    const t = laneTarget(net, road, fwd, sT, off, this._tmp);
-    const desired = Math.atan2(t.px - v.x, t.pz - v.z);
-    const err = wrapPi(desired - v.h);
-    ctl.steer = clamp(err * 2.2, -1, 1);
+    const net = this.game.ctx.net, a = v.ai, ctl = v.ctl, r = v.rail;
+    if (!r) { this._offRoad(v, dt); return; }
+    a.loose = 0;
+    plan(net, r, (rail) => this._chooseNext(rail));
     // Zielgeschwindigkeit
-    let limit = a.limit * (a.panic > 0 ? 1.5 : 1);
-    limit = Math.min(limit, 7 + 26 / (1 + Math.abs(err) * 5) * (a.limit / 20));
-    if (a.road.len - a.s < 25 && a.next === null) limit = Math.min(limit, 9);
-    // Hindernisse voraus
-    const fx = Math.sin(v.h), fz = Math.cos(v.h), lx = Math.cos(v.h), lz = -Math.sin(v.h);
-    const D = 8 + speed * 1.5;
-    let stopDist = 1e9;
-    for (const o of g.vehicles.list) {
-      if (o === v || !o.alive) continue;
-      const rx = o.x - v.x, rz = o.z - v.z;
-      if (Math.abs(rx) > D + 6 || Math.abs(rz) > D + 6) continue;
-      const ah = rx * fx + rz * fz, la = rx * lx + rz * lz;
-      if (ah < 0 || ah > D + v.hl + o.hl) continue;
-      const wide = v.hw + Math.max(o.hw, 0.9) + 0.5;
-      if (Math.abs(la) < wide) {
-        const gap = ah - v.hl - o.hl;
-        // Entgegenkommende in der Nachbarspur ignorieren (gleiche Richtung des Fahrzeugs prüfen)
-        const dot = fx * Math.sin(o.h) + fz * Math.cos(o.h);
-        if (dot < -0.5 && Math.abs(la) > 1.6) continue;
-        stopDist = Math.min(stopDist, gap - (Math.max(0, o.speed) * 0.6));
+    const long = v.type === 'bus' || v.type === 'truck';
+    let limit = Math.min(a.limit * (a.panic > 0 ? 1.5 : 1), curveLimit(net, r, v.T.brake) * (long ? 0.8 : 1));
+    // Hindernisse entlang der Spur (beim Vorbeifahren zählt das umfahrene Fahrzeug nicht)
+    a.ghost = Math.max(0, a.ghost - dt); a.pass = Math.max(0, a.pass - dt);
+    const block = this.blocker(v, 7 + Math.max(0, r.speed) * 1.4, a.ghost > 0, a.pass > 0 ? a.passing : null);
+    if (block) limit = block.gap < 2 ? 0 : Math.min(limit, (block.gap - 1.5) * 1.1);
+    // Blockade lösen: unter geführten Fahrzeugen klärt die Nummer die Vorfahrt, an stehenden Hindernissen wird vorbeigefahren
+    a.blocked = block && Math.abs(r.speed) < 0.6 ? a.blocked + dt : Math.max(0, a.blocked - dt * 2);
+    if (block && a.blocked > 4) {
+      const o = block.vehicle;
+      if (o && o.rail) { if (v.id < o.id || a.blocked > 10) { a.ghost = 3; a.blocked = 0; } }
+      else if (o && a.blocked > 5) { a.pass = 9; a.passing = o; a.ghost = 0; a.blocked = 0; v.horn = 0.3; }
+      else if (!o) {
+        // Hupen: Passanten gehen aus dem Weg; um alle anderen wird nach längerem Warten herumgefahren
+        const c = block.person;
+        v.horn = 0.3;
+        if (c.kind === 'ped' && c.ai) { this.game.peds.scare(c, v, 3); a.blocked = 2; }
+        else if (a.blocked > 9) { a.pass = 9; a.passing = null; a.blocked = 0; }
       }
     }
-    for (const c of g.allCharacters()) {
-      if (!c.alive || c.state === 'vehicle' || c === g.player && g.player.vehicle) continue;
-      const rx = c.x - v.x, rz = c.z - v.z;
-      if (Math.abs(rx) > D || Math.abs(rz) > D) continue;
-      const ah = rx * fx + rz * fz, la = rx * lx + rz * lz;
-      if (ah > 0 && ah < D && Math.abs(la) < v.hw + 1.0) stopDist = Math.min(stopDist, ah - v.hl - 1.2);
-    }
-    if (stopDist < 1e8) {
-      limit = Math.min(limit, Math.max(0, (stopDist - 2.5) * 1.1));
-      if (stopDist < 3) limit = 0;
-    }
-    // Blockade lösen
-    if (speed < 0.6 && limit > 2) { a.blocked += dt; } else a.blocked = Math.max(0, a.blocked - dt);
-    if (a.blocked > 7) { a.panic = Math.max(a.panic, 2.5); a.lane += (Math.random() < 0.5 ? 1 : -1) * 0.0; ctl.throttle = -0.8; ctl.steer = -ctl.steer; if (a.blocked > 10) a.blocked = 0; if (stopDist < 1e8 && a.blocked > 8.5) { v.horn = 0.3; } return; }
+    // Hoffnungslos festgefahren und weit weg vom Spieler: Das Fahrzeug verschwindet, damit kein Dauerstau bleibt
+    a.waited = block && Math.abs(r.speed) < 0.6 ? (a.waited || 0) + dt : Math.abs(r.speed) > 2 ? 0 : a.waited || 0;
+    if (a.waited > 30 && Math.hypot(v.x - this.game.player.x, v.z - this.game.player.z) > 70) a.gone = true;
     a.panic = Math.max(0, a.panic - dt);
-    const diff = limit - speed;
-    ctl.throttle = diff > 0.5 ? clamp(diff * 0.5, 0.15, 1) * (limit < 1 ? 0 : 1) : 0;
-    ctl.brake = diff < -1.2 ? clamp(-diff * 0.12, 0.1, 1) : 0;
-    if (limit <= 0.1) { ctl.throttle = 0; ctl.brake = 0.8; }
-    ctl.handbrake = false;
+    r.offTarget = a.panic > 0 ? r.lane * 0.4 : r.lane;
+    r.want = Math.max(0, limit);
+    if (a.pass > 7) r.want = -2.2;                                   // erst ein Stück zurücksetzen …
+    else if (a.pass > 0) { r.offTarget = r.lane > 0 ? -r.lane : -2.5; r.want = Math.min(r.want, 5); }   // … dann ausscheren
+    // Pedale nur für Bremslichter und Geräusch
+    ctl.throttle = r.want > r.speed + 0.3 ? 0.6 : 0;
+    ctl.brake = r.speed > r.want + 1 || Math.abs(r.want) < 0.1 ? 0.7 : 0;
+    ctl.steer = 0; ctl.handbrake = false;
     v.sirenOn = a.police && a.panic > 0;
   }
 
-  _laneFor(r, prev) {
-    return r.lanes >= 4 ? (Math.random() < 0.5 ? 0.14 : 0.37) * r.w : r.lanes >= 2 ? r.w * 0.25 : 0;
+  // Nach einem Stoß: ausrollen lassen, dann zurück auf die Straße – wer weit abseits gelandet ist, bleibt dort stehen
+  _offRoad(v, dt) {
+    const a = v.ai, ctl = v.ctl;
+    ctl.throttle = 0; ctl.steer = 0; ctl.brake = 0.7; ctl.handbrake = false;
+    a.loose += dt;
+    if (a.loose > 2.5 && Math.abs(v.speed) < 1 && v.grounded && attachRail(this.game.ctx.net, v, 14, (r) => this.trafficable(r))) a.panic = 4;
   }
 
-  _chooseNext(a) {
-    const net = this.game.ctx.net;
-    const road = a.road;
-    const node = a.fwd ? road.b : road.a;
-    const last = road.pts[a.fwd ? road.pts.length - 1 : 0], prev = road.pts[a.fwd ? road.pts.length - 2 : 1];
-    let dx = last[0] - prev[0], dz = last[1] - prev[1]; const l = Math.hypot(dx, dz) || 1;
+  // Erstes Hindernis auf den nächsten Metern der Spur: { gap, vehicle } bzw. { gap, vehicle: null, person } oder null
+  blocker(v, reach, ignoreGuided = false, skip = null) {
+    const g = this.game, net = g.ctx.net, D = reach + v.hl;
+    const near = (o) => Math.abs(o.x - v.x) < D + 10 && Math.abs(o.z - v.z) < D + 10 && Math.abs(o.y - v.y) < 3;
+    const cars = g.vehicles.list.filter((o) => o !== v && o !== skip && o.alive && !(ignoreGuided && o.rail) && near(o));
+    const people = g.allCharacters().filter((c) => c.alive && c.state !== 'vehicle' && near(c));
+    if (!cars.length && !people.length) return null;
+    for (let d = v.hl + 0.6; d <= D; d += 1.6) {
+      const p = poseAhead(net, v.rail, d);
+      for (const o of cars) {
+        const dx = p.x - o.x, dz = p.z - o.z, s = Math.sin(o.h), c = Math.cos(o.h);
+        if (Math.abs(dx * c - dz * s) < o.hw + v.hw * 0.75 && Math.abs(dx * s + dz * c) < o.hl + 0.6) return { gap: d - v.hl, vehicle: o };
+      }
+      for (const c of people) if (Math.hypot(p.x - c.x, p.z - c.z) < v.hw + 0.7) return { gap: d - v.hl, vehicle: null, person: c };
+    }
+    return null;
+  }
+
+  _chooseNext(rail) {
+    const road = rail.road;
+    const node = rail.fwd ? road.b : road.a;
+    const last = road.pts[rail.fwd ? road.pts.length - 1 : 0], prev = road.pts[rail.fwd ? road.pts.length - 2 : 1];
+    const dx = last[0] - prev[0], dz = last[1] - prev[1], l = Math.hypot(dx, dz) || 1;
     const e = this.router.pickNext(node, road, { x: dx / l, z: dz / l });
     return e ? { road: e.road, fwd: e.fwd } : null;
   }

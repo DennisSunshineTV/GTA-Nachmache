@@ -47,7 +47,7 @@ export class Markers {
     for (const m of this.list) {
       const d = Math.hypot(m.x - p.x, m.z - p.z);
       const show = m.active && d < 650;
-      m.beam.visible = m.ring.visible = show;
+      m.beam.visible = m.ring.visible = show && !m.invisible;   // unsichtbare Marker: nur Interaktion (z. B. das Bett)
       if (!show) continue;
       m.ring.scale.setScalar(m.radius * pulse);
       m.beam.material.opacity = 0.2 + 0.08 * Math.sin(this.time * 2.2 + m.x);
@@ -61,13 +61,15 @@ export class Markers {
     }
   }
 
-  // Nächster Marker mit onInteract in Reichweite (nur zu Fuß)
+  // Nächster Marker mit onInteract in Reichweite (nur zu Fuß); liegen mehrere in Reichweite, gewinnt der relativ nächste
   interactable(p) {
+    let best = null, bk = 1;
     for (const m of this.list) {
       if (!m.active || !m.onInteract) continue;
-      if (Math.hypot(m.x - p.x, m.z - p.z) < (m.interactRadius ?? m.radius + 0.6) && Math.abs(p.y - m.y) < 4) return m;
+      const k = Math.hypot(m.x - p.x, m.z - p.z) / (m.interactRadius ?? m.radius + 0.6);
+      if (k < bk && Math.abs(p.y - m.y) < 4) { bk = k; best = m; }
     }
-    return null;
+    return best;
   }
 }
 

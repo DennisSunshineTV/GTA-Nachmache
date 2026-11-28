@@ -72,17 +72,44 @@ export class PedManager {
     const gy = g.physics.groundHeight(x, z);
     if (ai.mode !== 'swim' && gy < 0.1) return null;
     if (ai.mode === 'swim' && gy > -0.5) return null;
+    const lieH = ai.mode === 'lie' ? this._lieHeading(x, z) : null;
+    if (ai.mode === 'lie' && lieH === null) return null;   // kein freier Liegeplatz
     const female = Math.random() < 0.46;
     const ch = new Character(g, 'ped', x, z, { outfit, heading: Math.random() * 6.28, hp: 60 + Math.random() * 40 });
     ch.name = (female ? NAMES_F : NAMES_M)[Math.floor(Math.random() * 10)];
     ch.armed = Math.random() < 0.04;
     ch.ai = { mode: ai.mode, t: 5 + Math.random() * 20, route, tx: x, tz: z, outfit, fear: 0, moodT: 6 + Math.random() * 20, bumpT: 0 };
-    if (ai.mode === 'lie') { ch.anim.lie = true; ch.h = Math.random() * 6.28; }
+    if (ai.mode === 'lie') { ch.anim.lie = true; ch.h = lieH; }
     if (ai.mode === 'dance') ch.anim.dance = true;
     if (ai.mode === 'swim') ch.ai.tx = x, ch.ai.tz = z;
     g.addCharacter(ch);
     this.list.push(ch);
     return ch;
+  }
+
+  // Liegeplatz zum Sonnenbaden: Der ganze Körper (Füße am Ursprung, Kopf knapp 2 m hinter der Blickrichtung) muss auf
+  // freiem, ebenem Sand liegen – nie halb auf Holzterrasse, Steg, Straße, Mauer oder im Wasser. Liefert die Richtung oder null.
+  _lieHeading(x, z) {
+    const y0 = this.game.physics.groundHeight(x, z);
+    const start = Math.random() * 6.28;
+    for (let k = 0; k < 8; k++) {
+      const h = start + (k / 8) * 6.28, fx = Math.sin(h), fz = Math.cos(h);
+      let free = true;
+      for (let i = 0; i <= 6 && free; i++) {
+        const t = -0.4 + i * 0.45;   // entlang des Körpers: knapp vor den Füßen bis hinter den Kopf
+        free = [-0.7, 0, 0.7].every((s) => this._freeSand(x - fx * t + fz * s, z - fz * t - fx * s, y0));
+      }
+      if (free) return h;
+    }
+    return null;
+  }
+
+  _freeSand(x, z, y0) {
+    const g = this.game, phys = g.physics;
+    if (g.ctx.coast.sdAt(x, z) < 1) return false;
+    if (Math.abs(phys.groundHeight(x, z) - y0) > 0.14) return false;
+    if (phys.platformHeight(x, z) > -Infinity || g.ctx.net.covers(x, z, 0.6)) return false;
+    return !phys.pushCircle({ x, z }, 0.25, y0 + 0.05, y0 + 0.5);
   }
 
   // ---------- Update ----------

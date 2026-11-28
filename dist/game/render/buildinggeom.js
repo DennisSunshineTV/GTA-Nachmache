@@ -2,6 +2,8 @@
 import { mulberry32, clamp } from '../util.js';
 import { SignList } from '../world/signs.js';
 import { FACADE_COLS, FACADE_ROWS } from './textures.js';
+import { addBeachPart } from './beachgeom.js';
+import { addServicePart } from './servicegeom.js';
 
 const STYLE = {
   apt: { mat: 'plaster', bay: 4.0, fl: 3.1 },
@@ -105,6 +107,8 @@ function hotelBalconies(B, b, yF, c, s) {
 
 // Fügt ein Gebäude den Mesh-Buildern B hinzu. front: Wandindex (0..3) mit Schild
 export function addBuilding(b, B, front = 0) {
+  if (b.style === 'beach') { addBeachPart(b, B); return; }
+  if (b.style === 'service') { addServicePart(b, B); return; }
   const st = STYLE[b.style] || STYLE.apt;
   const tint = b.tint;
   const rnd = mulberry32(b.seed);

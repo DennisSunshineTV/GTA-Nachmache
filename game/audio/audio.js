@@ -74,6 +74,7 @@ export class AudioSystem {
   reloadSound(ch) { this.at(ch.x, ch.y + 1, ch.z, (d, t) => { const S = this.S; S.noise(t, 0.05, 0.4, { type: 'bandpass', freq: 1800, dest: d }); S.noise(t + 0.55, 0.06, 0.5, { type: 'bandpass', freq: 1200, dest: d }); S.noise(t + 0.9, 0.04, 0.35, { type: 'bandpass', freq: 2200, dest: d }); }, 10, 60); }
   click() { this.now((d, t) => this.S.noise(t, 0.02, 0.3, { type: 'bandpass', freq: 2500, dest: d })); }
   punch(ch) { this.at(ch.x, ch.y + 1, ch.z, (d, t) => { this.S.noise(t, 0.09, 0.5, { type: 'lowpass', freq: 600, dest: d }); this.S.osc('sine', 120, t, 0.08, 0.5, { a: 0.001, d: 0.08, s: 0.01, r: 0.02, slide: 0.5, dest: d }); }, 10, 50); }
+  block(ch) { this.at(ch.x, ch.y + 1.2, ch.z, (d, t) => { this.S.noise(t, 0.05, 0.6, { type: 'bandpass', freq: 1400, dest: d }); this.S.osc('sine', 210, t, 0.05, 0.35, { a: 0.001, d: 0.05, s: 0.01, r: 0.02, dest: d }); }, 10, 50); }
   throwSound(ch) { this.at(ch.x, ch.y + 1, ch.z, (d, t) => this.S.noise(t, 0.2, 0.2, { type: 'bandpass', freq: 800, sweep: 3, dest: d }), 10, 40); }
   thud(x, y, z) { this.at(x, y, z, (d, t) => { this.S.osc('sine', 90, t, 0.18, 0.9, { a: 0.001, d: 0.18, s: 0.01, r: 0.05, slide: 0.4, dest: d }); this.S.noise(t, 0.1, 0.4, { type: 'lowpass', freq: 500, dest: d }); }, 12, 80); }
   hurt() { this.now((d, t) => this.S.noise(t, 0.12, 0.25, { type: 'lowpass', freq: 900, dest: d })); }
@@ -199,7 +200,7 @@ export class AudioSystem {
     const inV = !!p.vehicle && p.vehicle.cls !== 'boat' && p.vehicle.cls !== 'plane';
     const damp = inV ? 0.45 : 1;
     const wave = clamp(1 - Math.abs(sd) / 140, 0, 1) * 0.5 + (p.vehicle && p.vehicle.cls === 'boat' ? 0.25 : 0);
-    this.amb.waves.g.gain.setTargetAtTime(wave * damp * (0.8 + 0.2 * Math.sin(g.time * 0.35)), t, 0.4);
+    this.amb.waves.g.gain.setTargetAtTime(wave * damp * (0.8 + 0.2 * Math.sin(this.t * 0.35)), t, 0.4);
     this.amb.rain.g.gain.setTargetAtTime(rain * 0.35 * (inV ? 0.6 : 1), t, 0.5);
     this.amb.city.g.gain.setTargetAtTime((lu && lu !== 10 ? 0.28 : 0.04) * damp, t, 0.6);
     this.amb.wind.g.gain.setTargetAtTime(0.03 + (g.atm.weatherKey === 'storm' ? 0.35 : 0.08) * (sd > 0 ? 1 : 1.3), t, 0.6);
@@ -207,7 +208,7 @@ export class AudioSystem {
     const green = sd > 40 && !lu ? 1 : lu === 2 ? 0.6 : 0;
     this.cicGain.gain.setTargetAtTime(0, t, 0.1); // (AM-Gain wird über cicG gesteuert)
     this.cicG.gain.setTargetAtTime(0.03 * green * (1 - night) * (1 - rain), t, 0.8);
-    this.crG.gain.setTargetAtTime((0.012 * green * night) * (1 + Math.sin(g.time * 18) * 0.9 > 1 ? 1 : 0.1), t, 0.05);
+    this.crG.gain.setTargetAtTime((0.012 * green * night) * (1 + Math.sin(this.t * 18) * 0.9 > 1 ? 1 : 0.1), t, 0.05);
     // Blitz → Donner
     if (g.atm.lightning > 0.9 && !this._thunder) { this._thunder = true; setTimeout(() => { this.explosion(250); this._thunder = false; }, 500 + Math.random() * 2500); }
     // Club-Bass bei Nacht
@@ -247,8 +248,8 @@ export class AudioSystem {
     }
     const vol = best < 220 ? clamp(1 / (1 + (best / 30) ** 1.5), 0, 0.6) * 0.2 * (inV ? 0.6 : 1) : 0;
     this.siren.gn.gain.setTargetAtTime(vol, t, 0.1);
-    const ph = (g.time * 0.9) % 1;
-    const f = 700 + 700 * Math.abs(Math.sin(g.time * 3.2));
+    const ph = (this.t * 0.9) % 1;
+    const f = 700 + 700 * Math.abs(Math.sin(this.t * 3.2));
     this.siren.o.frequency.setTargetAtTime(f, t, 0.03);
     void ph;
   }
@@ -271,6 +272,15 @@ export class AudioSystem {
       }
     }
     if (p.state === 'swim' && Math.random() < dt * 3) this.now((d, t) => this.S.noise(t, 0.2, 0.06, { type: 'bandpass', freq: 1200, dest: d }));
+  }
+
+  // Pause-Menü und Vollbildkarte: Hintergrundgeräusche (Meer, Wind, Stadt, Zikaden, Club, Sirenen) laufen weiter,
+  // nur Schritte und andere Spielgeräusche ruhen
+  updatePaused(dt) {
+    if (!this.ok) return;
+    this.t += dt;
+    if (this.ctx.state === 'suspended') return;
+    this._updateAmbient(dt);
   }
 
   dispose() {

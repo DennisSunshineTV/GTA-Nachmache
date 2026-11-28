@@ -1,6 +1,6 @@
 // Schilder: Liste der Texte (Weltgenerierung) + Stile (für die Textur-Atlas im Renderer).
 export const SIGN_COLS = 4;
-export const SIGN_ROWS = 16;
+export const SIGN_ROWS = 28;     // 112 Plätze (die Welt braucht ~90 verschiedene Schilder; vorher 72 -> falsche Texte)
 
 export const SIGN_STYLES = {
   hotel: { bg: '#0f3d73', fg: '#ffffff', edge: '#f5c542', glow: 0.35 },
@@ -17,6 +17,7 @@ export const SIGN_STYLES = {
   clinic: { bg: '#ffffff', fg: '#cc1f2d', edge: '#cc1f2d', glow: 0.5 },
   harbor: { bg: '#164a63', fg: '#ffffff', edge: '#ffffff', glow: 0.3 },
   port: { bg: '#0f2840', fg: '#8fe3ff', edge: '#8fe3ff', glow: 0.8 },
+  beach: { bg: '#5a3b22', fg: '#f7e8c6', edge: '#d3a867', glow: 0.15 },
 };
 
 export class SignList {

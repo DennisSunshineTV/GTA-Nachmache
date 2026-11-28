@@ -1,0 +1,11 @@
+{
+  "name": "gta-nachmache",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Platzhalterseite: Seite derzeit in Bearbeitung",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "build": "node build.js"
+  }
+}

@@ -3,12 +3,13 @@ import { fmtMoney, clamp } from '../util.js';
 import { WEAPONS, WEAPON_ORDER } from '../combat/weapons.js';
 import { VEHICLE_TYPES } from '../entities/vehicle_models.js';
 import { freeSpot } from '../world/spots.js';
+import { BLIP } from '../ui/blips.js';
 
 const PROPERTIES = [
-  { id: 'beachbar', name: 'Strandbar „Sol y Mar“', poi: 'arenal.beachbar', price: 120000, income: 420, icon: '🍹' },
-  { id: 'club', name: 'Nachtclub „Neon“', poi: 'magaluf.club0', price: 480000, income: 1350, icon: '♪' },
-  { id: 'marina', name: 'Yacht-Charter Palma', poi: 'palma.pier3', price: 900000, income: 2900, icon: '⚓' },
-  { id: 'finca', name: 'Finca in Alcúdia', poi: 'alcudia.center', price: 1500000, income: 4600, icon: '⌂' },
+  { id: 'beachbar', name: 'Strandbar „Sol y Mar“', poi: 'arenal.beachbar', price: 120000, income: 420 },
+  { id: 'club', name: 'Nachtclub „Neon“', poi: 'magaluf.club0', price: 480000, income: 1350 },
+  { id: 'marina', name: 'Yacht-Charter Palma', poi: 'palma.pier3', price: 900000, income: 2900 },
+  { id: 'finca', name: 'Finca in Alcúdia', poi: 'alcudia.center', price: 1500000, income: 4600 },
 ];
 const SALE_CARS = ['compact', 'coupe', 'suv', 'pickup', 'van', 'luxury', 'sports', 'moto', 'limo', 'speedboat', 'jetski', 'plane', 'yacht'];
 
@@ -32,17 +33,23 @@ export class Shops {
       else if (p.type === 'clinic') add(p.x, p.z, 'Behandlung (€50)', [1, 0.3, 0.4], () => this.clinic());
       else if (p.type === 'bar') add(p.x, p.z, 'Bar: Getränk kaufen / Überfall', [0.9, 0.7, 0.2], (m) => this.bar(m, p));
     }
-    // Wohnung am Startpunkt
-    const sp = g.startPosition();
-    const hp = freeSpot(g.ctx, sp.x + 14, sp.z + 10, 3);
-    const ax = hp.x, az = hp.z;
-    this.home = add(ax, az, 'Wohnung: Speichern & Garage', [0.4, 1, 0.5], () => this.apartment(), { icon: '⌂', color: '#7dff8a' });
+    // Wohnung: im Strandhaus neben dem Bett (kleiner Marker, das Haus ist begehbar); ohne Platz am Strand am Startpunkt
+    const blip = { icon: BLIP.house.icon, color: BLIP.house.color, big: true };
+    if (g.ctx.home) {
+      const q = g.ctx.home.inside;
+      this.home = M.add({ x: q.x, z: q.z, radius: 0.9, height: 1.1, color: [0.4, 1, 0.5], hint: 'Wohnung: Speichern & Garage', onInteract: () => this.apartment(), blip, interactRadius: 1.6 });
+      this.markers.push(this.home);
+    } else {
+      const sp = g.startPosition(); const hp = freeSpot(g.ctx, sp.x + 14, sp.z + 10, 3);
+      this.home = add(hp.x, hp.z, 'Wohnung: Speichern & Garage', [0.4, 1, 0.5], () => this.apartment(), blip);
+    }
     // Immobilien
     for (const pr of PROPERTIES) {
       const p = this.find(pr.poi) || g.ctx.pois.find((q) => q.id.startsWith(pr.poi.split('.')[0]));
       if (!p) continue;
-      const q = p.door ? { x: p.x, z: p.z } : freeSpot(g.ctx, p.x + 5, p.z + 5, 3);   // Gebäude sind nicht begehbar: Marker davor
-      this.markers.push(M.add({ x: q.x, z: q.z, radius: 2.6, color: [0.2, 0.9, 0.5], height: 16, hint: pr.name, interactRadius: 3.4, onInteract: () => this.property(pr), blip: { icon: pr.icon, color: '#5be07d' } }));
+      // Gebäude sind nicht begehbar: Marker davor; an einer Anlegestelle liegt er auf dem Steg
+      const q = p.door || p.type === 'pier' ? { x: p.x, z: p.z } : freeSpot(g.ctx, p.x + 5, p.z + 5, 3);
+      this.markers.push(M.add({ x: q.x, z: q.z, radius: 2.6, color: [0.2, 0.9, 0.5], height: 16, hint: pr.name, interactRadius: 3.4, onInteract: () => this.property(pr), blip: { icon: BLIP.home.icon, color: BLIP.home.color } }));
     }
     void ui;
   }
@@ -80,13 +87,29 @@ export class Shops {
     this.spawnOwned(g.owned.vehicles.length - 1, poi);
   }
 
-  spawnOwned(i, near) {
+  // Freier Stellplatz in der Garage des Strandhauses, sonst auf dem Vorplatz davor (Ausfahrt Richtung Zufahrt)
+  garageSpot() {
+    const g = this.game, home = g.ctx.home;
+    if (!home) return null;
+    const slot = g.home?.freeSlot();
+    if (slot) return slot;
+    const sp = home.spawn, rx = Math.cos(sp.h), rz = -Math.sin(sp.h);       // quer zur Fahrtrichtung
+    for (const k of [0, 1, -1, 2, -2]) {
+      const x = sp.x + rx * k * 2.6, z = sp.z + rz * k * 2.6;
+      if (!g.vehicles.list.some((v) => v.alive && Math.hypot(v.x - x, v.z - z) < 3.4)) return { x, z, h: sp.h };
+    }
+    return { x: sp.x, z: sp.z, h: sp.h };
+  }
+
+  spawnOwned(i, near, quiet = false) {
     const g = this.game, o = g.owned.vehicles[i];
     if (!o) return;
     let x, z, h = 0;
     const ref = near || g.player;
     const T = VEHICLE_TYPES[o.type];
-    if (T.cls === 'plane') { const rw = g.ctx.runway; x = rw.x - rw.ux * rw.L * 0.4; z = rw.z - rw.uz * rw.L * 0.4; h = Math.atan2(rw.ux, rw.uz); }
+    const gs = !near && T.cls !== 'plane' && T.cls !== 'boat' && T.cls !== 'heli' ? this.garageSpot() : null;
+    if (gs) { x = gs.x; z = gs.z; h = gs.h; }
+    else if (T.cls === 'plane') { const rw = g.ctx.runway; x = rw.x - rw.ux * rw.L * 0.4; z = rw.z - rw.uz * rw.L * 0.4; h = Math.atan2(rw.ux, rw.uz); }
     else if (T.cls === 'boat') {
       const hb = g.ctx.pois.find((q) => q.id === 'palma.pier0') || g.ctx.pois.find((q) => q.type === 'pier');
       x = hb.x; z = hb.z;
@@ -97,7 +120,7 @@ export class Shops {
     }
     const v = g.vehicles.spawn(o.type, x, z, h, { owner: 'abandoned', paint: o.paint });
     v.keep = true; v.ownedIdx = i;
-    g.ui.notify(`${T.name} wurde bereitgestellt`, 'info');
+    if (!quiet) g.ui.notify(`${T.name} wurde bereitgestellt`, 'info');
     return v;
   }
 
@@ -128,10 +151,10 @@ export class Shops {
   apartment() {
     const g = this.game;
     const items = [
-      { label: 'Spiel speichern', sub: 'Fortschritt auf dem Server sichern', fn: async () => { await g.saveToServer(); g.ui.panels.close(); } },
+      { label: 'Spiel speichern', sub: 'Fortschritt auf dem Server sichern' + (g.autoSaveOn ? ' · Auto-Save ist an (automatisch nach jeder Mission)' : ''), fn: () => g.ui.panels.saveMenu('save') },
       { label: 'Bis 08:00 Uhr schlafen', sub: 'Gesundheit auffüllen, Zeit vorspulen', fn: () => { g.atm.hour = 8; g.player.hp = g.player.maxHp; g.ui.notify('Gut geschlafen', 'good'); g.ui.panels.close(); } },
     ];
-    g.owned.vehicles.forEach((o, i) => items.push({ label: `Garage: ${VEHICLE_TYPES[o.type].name}`, sub: 'Fahrzeug bereitstellen', fn: () => { const exist = g.vehicles.list.find((v) => v.ownedIdx === i && v.alive); if (exist) { exist.x = g.player.x + 5; exist.z = g.player.z + 3; exist.vx = exist.vz = 0; } else this.spawnOwned(i); g.ui.panels.close(); } }));
+    g.owned.vehicles.forEach((o, i) => items.push({ label: `Garage: ${VEHICLE_TYPES[o.type].name}`, sub: 'Fahrzeug bereitstellen', fn: () => { const exist = g.vehicles.list.find((v) => v.ownedIdx === i && v.alive); if (exist) { const gs = this.garageSpot(); if (gs && exist.cls !== 'plane' && exist.cls !== 'boat') { exist.x = gs.x; exist.z = gs.z; exist.h = gs.h; exist.y = g.physics.groundHeight(gs.x, gs.z) + 0.6; } else { exist.x = g.player.x + 5; exist.z = g.player.z + 3; } exist.vx = exist.vz = 0; } else this.spawnOwned(i); g.ui.panels.close(); } }));
     g.ui.panels.listMenu('Deine Wohnung', items, 'Hier bist du sicher.');
   }
 

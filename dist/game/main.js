@@ -15,6 +15,7 @@ import { loadSettings } from './ui/panels.js';
 import { EnemyManager } from './ai/enemies.js';
 import { MissionManager } from './story/missions.js';
 import { Shops } from './story/shops.js';
+import { buildSatelliteData } from './ui/satellite.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -22,6 +23,8 @@ export async function startGame(container, opts = {}) {
   const progress = opts.onProgress || (() => {});
   progress(0.01, 'Weltdaten erzeugen …');
   const ctx = await buildWorldData((p, m) => progress(p * 0.55, m));
+  progress(0.56, 'Satellitenbild der Inseln …'); await tick();
+  ctx.satData = await buildSatelliteData(ctx, tick);   // Grundlage für Karte und Minikarte
   progress(0.58, 'Grafik vorbereiten …'); await tick();
   const engine = new Engine(container, opts.quality || 'high');
   const atm = new Atmosphere(engine.renderer, engine.scene, engine.camera, { hour: opts.hour ?? 10.5, weather: opts.weather || 'sunny', shadowSize: engine.q.shadow || 1024, shadowRange: engine.q.shadowRange });
@@ -55,7 +58,7 @@ export async function startGame(container, opts = {}) {
     if (chunks.queue.length === 0 && !chunks.current) break;
   }
   // Physik-Kollider der bereits geladenen Details
-  for (const c of chunks.chunks.values()) if (c.detail) { game.physics.addColliders(c.detail.colliders); game.physics.addPlatforms(c.detail.platforms); }
+  for (const c of chunks.chunks.values()) if (c.detail) game.physics.addColliders(c.detail.colliders);
   props.setNear(chunks.nearKeys(engine.camera.position, 300)); props.rebuild();
 
   progress(0.94, 'Figuren und Fahrzeuge …'); await tick();
@@ -68,7 +71,12 @@ export async function startGame(container, opts = {}) {
   game.enemies = new EnemyManager(game);
   game.missions = new MissionManager(game);
   game.shops = new Shops(game);
-  if (opts.save && opts.save.save) game.restore(opts.save.save);
+  // Neues Spiel am Strandhaus: ein Kleinwagen steht in der Garage (der erste Auftrag verlangt ein Fahrzeug)
+  if (!(opts.save && opts.save.save) && !opts.start && game.ctx.home && !game.owned.vehicles.length) {
+    game.owned.vehicles.push({ type: 'compact', paint: 0 });
+    game.shops.spawnOwned(0);
+  }
+  if (opts.save && opts.save.save) { game.restore(opts.save.save); game.home.fillGarage(); }   // eigene Autos stehen in der Garage
   if (opts.setup) await opts.setup(game, start);
   // Welt beleben
   game.player.updateCamera(0);

@@ -1,23 +1,13 @@
 // Menüs im Spiel: Pause, Optionen, Steuerung, Statistik, Speichern/Laden, Shops, Admin-Panel.
 import { fmtMoney } from '../util.js';
-import { QUALITY } from '../render/engine.js';
 import { VEHICLE_TYPES } from '../entities/vehicle_models.js';
 import { WEAPONS, WEAPON_ORDER } from '../combat/weapons.js';
 import { WEATHER_NAMES } from '../render/sky.js';
+import { charName } from '../story/characters.js';
+import { loadSettings, saveSettings, renderOptions, computeRemap, ACTIONS, ACTION_GROUPS, FIXED_INFO, CONTROLLER_LAYOUT, effectiveCode, keyLabel } from '/assets/options.js';
 
-const SETTINGS_KEY = 'streetlife.settings.v1';
-export function loadSettings() {
-  try { return { quality: 'high', master: 0.8, music: 0.7, sfx: 0.8, sens: 1, invertY: false, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; } catch { return { quality: 'high', master: 0.8, music: 0.7, sfx: 0.8, sens: 1, invertY: false }; }
-}
-export function saveSettings(s) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* ignorieren */ } }
-
-const KEYS = [
-  ['W A S D', 'Laufen / Fahren'], ['Shift', 'Sprinten (zu Fuß) / Gas (Flugzeug)'], ['Leertaste', 'Springen · Handbremse · Bremse'], ['Maus', 'Kamera / Zielen'],
-  ['Rechte Maustaste', 'Zielen'], ['Linke Maustaste', 'Schießen / Schlagen'], ['R', 'Nachladen'], ['1 – 8 / Mausrad', 'Waffe wechseln'],
-  ['F', 'Einsteigen · Aussteigen · Interagieren'], ['Q / E', 'Radiosender wechseln (Fahrzeug) · Seitenruder (Flugzeug)'], ['H', 'Hupe'], ['L', 'Licht an/aus'],
-  ['G', 'Polizeisirene (Polizeiauto)'], ['C', 'Ducken'], ['V', 'Kameraansicht'], ['M', 'Karte (Wegpunkt per Klick)'],
-  ['N', 'FPS-Anzeige'], ['Esc', 'Pause-Menü'], ['W/S (Flugzeug)', 'Nase runter / hoch'], ['A/D (Flugzeug)', 'Querneigung'],
-];
+// Einstellungen und Tastenbelegung liegen in assets/options.js (auch vom Startbildschirm genutzt)
+export { loadSettings, saveSettings };
 
 export class Panels {
   constructor(game, ui) {
@@ -35,6 +25,7 @@ export class Panels {
   apply(initial = false) {
     const g = this.game, s = this.settings;
     g.input.sens = s.sens; g.input.invertY = s.invertY;
+    { const { remap, blocked } = computeRemap(s.keys); g.input.setRemap?.(remap, blocked); }
     g.audio?.setVolumes?.(s.master, s.music, s.sfx);
     if (!initial && g.engine.qualityKey !== s.quality) { g.engine.setQuality(s.quality); g.onQualityChanged?.(); }
   }
@@ -73,46 +64,122 @@ export class Panels {
     return b;
   }
 
+  // "Zurück"- bzw. "Schließen"-Knopf einer Ansicht; die Controller-Taste B drückt ihn
+  backBtn(label, fn) {
+    const b = this.btn(label, fn);
+    b.dataset.back = '1';
+    return b;
+  }
+
+  back() {
+    const b = this.box.querySelector('[data-back]');
+    if (b) b.click(); else this.close();
+  }
+
+  // Rückfrage im Menü (das Fenster von confirm() ließe sich nicht mit dem Controller bedienen)
+  confirm(text, label, yes, no) {
+    this._show('<h2>Bitte bestätigen</h2><p></p><div id="cq"></div>');
+    this.box.querySelector('p').textContent = text;
+    this.box.querySelector('#cq').append(this.backBtn('Abbrechen', no), this.btn(label, yes));
+  }
+
+  // Vollbildkarte aus dem Pause-Menü öffnen (Tabs: Karte / Quests)
+  openMap(tab) {
+    this.menu.style.display = 'none';
+    this.open = false;
+    this.ui.minimap.open(tab, true);
+  }
+
   pauseMenu() {
     const g = this.game;
     this._show(`<h2>Pause</h2><div id="pm"></div>`);
     const pm = this.box.querySelector('#pm');
     const items = [
       ['Weiter spielen', () => this.close()],
-      ['Karte', () => { this.menu.style.display = 'none'; this.open = false; this.ui.minimap.toggleFull(true); }],
-      ['Spiel speichern', async () => { await g.saveToServer?.(); }],
-      ['Speicherstand laden', async () => { await g.loadFromServer?.(); this.close(); }],
+      ['Karte', () => this.openMap('map')],
+      ['Quests', () => this.openMap('quests')],
+      ['Spiel speichern', () => this.saveMenu('save'), this.saveInfo()],
+      ['Speicherstand laden', () => this.saveMenu('load')],
       ['Optionen', () => this.optionsMenu()],
       ['Steuerung', () => this.controlsMenu()],
       ['Statistiken', () => this.statsMenu()],
       ['Freundschaften', () => this.friendsMenu()],
-      ['Hauptmenü', () => { if (confirm('Zum Hauptmenü zurückkehren? Nicht gespeicherter Fortschritt geht verloren.')) g.exitToMenu?.(); }],
+      ['Hauptmenü', () => this.confirm('Zum Hauptmenü zurückkehren? Nicht gespeicherter Fortschritt geht verloren.', 'Zum Hauptmenü', () => g.exitToMenu?.(), () => this.pauseMenu())],
     ];
-    for (const [l, f] of items) pm.appendChild(this.btn(l, f));
+    // Admins und Sysadmins erreichen das Admin-Menü auch über das Pause-Menü (sonst nur mit F4)
+    if (g.isAdmin) items.push(['Admin-Menü', () => this.adminMenu('teleport'), g.rank + ' · ' + g.userName]);
+    for (const [l, f, sub] of items) pm.appendChild(this.btn(l, f, sub || ""));
+  }
+
+  // Optionen mit den Reitern Audio, Grafik und Tastatur (Oberfläche in assets/options.js)
+  // Speicherplätze: ganz oben der Auto-Save, darunter die 10 eigenen Speicherstände.
+  // mode 'save': in einen Platz speichern (Auto-Save kann man nicht von Hand überschreiben); 'load': einen Stand laden
+  async saveMenu(mode, back = () => this.pauseMenu()) {
+    const g = this.game;
+    this._show(`<h2>${mode === 'save' ? 'Spiel speichern' : 'Speicherstand laden'}</h2><div id="sl" style="opacity:.8">Lade Speicherplätze …</div><div id="sb"></div>`);
+    this.box.querySelector('#sb').appendChild(this.backBtn('Zurück', back));
+    let slots = [];
+    let unsupported = false;
+    try { const r = await fetch('/api/saves'); const d = await r.json(); if (Array.isArray(d.slots)) slots = d.slots; else unsupported = true; } catch { unsupported = true; }
+    if (!this.open) return;
+    if (unsupported) {
+      this.box.querySelector('#sl').textContent = 'Die Speicherplätze sind auf dem Server noch nicht verfügbar. Bitte die Dateien api/index.php und api/lib.php auf dem Server aktualisieren (Inhalt von dist/ hochladen).';
+      return;
+    }
+    const by = new Map(slots.map((s) => [s.slot, s]));
+    const list = this.box.querySelector('#sl');
+    list.style.opacity = 1; list.textContent = '';
+    const info = (s) => `${charName(s.summary.who)} · ${fmtMoney(s.summary.money)} · ${s.summary.missions} ${s.summary.missions === 1 ? 'Mission' : 'Missionen'} · ${new Date(s.savedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}`;
+    for (let n = 0; n <= 10; n++) {
+      const s = by.get(n);
+      const label = n === 0 ? 'Auto-Save <span style="font-weight:500;opacity:.75">(automatisch)</span>' : 'Speicherstand ' + n;
+      let sub = s ? info(s) : (n === 0 ? (g.autoSaveOn ? 'Noch nichts automatisch gespeichert' : 'Auto-Save ist aus (Optionen → Speichern)') : 'Leer');
+      let disabled = false, fn = null;
+      if (mode === 'save') {
+        if (n === 0) { disabled = true; sub += g.autoSaveOn && s ? ' · wird nach jeder Mission automatisch aktualisiert' : ''; }
+        else {
+          const save = async () => { await g.saveToServer(false, n); this.saveMenu('save', back); };
+          fn = s ? () => this.confirm('Speicherstand ' + n + ' überschreiben?', 'Überschreiben', save, () => this.saveMenu('save', back)) : save;
+        }
+      } else if (!s) disabled = true;
+      else fn = async () => { if (await g.loadFromServer(n)) this.close(); };
+      const b = this.btn(label, fn || (() => {}), sub);
+      if (disabled) b.disabled = true;
+      b.style.padding = '9px 16px'; b.style.margin = '5px 0'; b.style.fontSize = '17px';
+      list.appendChild(b);
+    }
+  }
+
+  // Zusatzzeile beim Speichern: wann zuletzt gespeichert wurde (und ob automatisch)
+  saveInfo() {
+    const g = this.game;
+    if (!g.lastSaveAt) return g.autoSaveOn ? 'Auto-Save ist an: gespeichert wird nach jeder geschafften Mission' : 'Auto-Save ist aus (Optionen → Speichern)';
+    const t = new Date(g.lastSaveAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    return 'Zuletzt gespeichert um ' + t + (g.lastSaveAuto ? ' (automatisch)' : '');
   }
 
   optionsMenu() {
     const s = this.settings;
-    this._show(`<h2>Optionen</h2>
-      <div class="row"><label>Grafikqualität</label><select id="o-q">${Object.keys(QUALITY).map((k) => `<option value="${k}" ${s.quality === k ? 'selected' : ''}>${{ low: 'Niedrig', medium: 'Mittel', high: 'Hoch', ultra: 'Ultra' }[k]}</option>`).join('')}</select></div>
-      <div class="row"><label>Gesamtlautstärke</label><input id="o-m" type="range" min="0" max="1" step="0.05" value="${s.master}"></div>
-      <div class="row"><label>Musik / Radio</label><input id="o-mu" type="range" min="0" max="1" step="0.05" value="${s.music}"></div>
-      <div class="row"><label>Effekte</label><input id="o-s" type="range" min="0" max="1" step="0.05" value="${s.sfx}"></div>
-      <div class="row"><label>Maus-Empfindlichkeit</label><input id="o-se" type="range" min="0.2" max="2.5" step="0.05" value="${s.sens}"></div>
-      <div class="row"><label>Y-Achse umkehren</label><input id="o-iy" type="checkbox" ${s.invertY ? 'checked' : ''}></div>
-      <div id="ob"></div>`);
-    const $ = (id) => this.box.querySelector(id);
-    const upd = () => {
-      s.quality = $('#o-q').value; s.master = +$('#o-m').value; s.music = +$('#o-mu').value; s.sfx = +$('#o-s').value; s.sens = +$('#o-se').value; s.invertY = $('#o-iy').checked;
-      saveSettings(s); this.apply();
-    };
-    for (const id of ['#o-q', '#o-m', '#o-mu', '#o-s', '#o-se', '#o-iy']) $(id).addEventListener('input', upd);
-    $('#ob').appendChild(this.btn('Zurück', () => this.pauseMenu()));
+    this._show('<h2>Optionen</h2><div id="opt-host"></div><div id="ob"></div>', true);
+    const ctl = renderOptions(this.box.querySelector('#opt-host'), { settings: s, onChange: () => { saveSettings(s); this.apply(); } });
+    this.box.querySelector('#ob').appendChild(this.backBtn('Zurück', () => { ctl.dispose(); this.pauseMenu(); }));
   }
 
+  // Steuerung: zeigt die aktuelle Tastenbelegung (geändert wird sie unter Optionen → Tastatur) und die Xbox-Belegung.
+  // Das zuletzt benutzte Eingabegerät steht oben.
   controlsMenu() {
-    this._show(`<h2>Steuerung</h2><div class="keys">${KEYS.map(([k, d]) => `<kbd>${k}</kbd><span>${d}</span>`).join('')}</div><div id="cb"></div>`);
-    this.box.querySelector('#cb').appendChild(this.btn('Zurück', () => this.pauseMenu()));
+    const s = this.settings;
+    const head = (t) => `<h3 style="grid-column:1 / -1">${t}</h3>`, row = ([k, d]) => `<kbd>${k}</kbd><span>${d}</span>`;
+    const keys = [];
+    for (const g of ACTION_GROUPS) {
+      keys.push(head(g.label));
+      for (const a of ACTIONS.filter((x) => x.group === g.id)) keys.push(row([keyLabel(effectiveCode(s.keys, a)), a.label]));
+    }
+    keys.push(head('Maus und weitere feste Bedienung'), ...FIXED_INFO.map(row));
+    const pad = CONTROLLER_LAYOUT.flatMap((sec) => [head('Xbox-Controller · ' + sec.title), ...sec.rows.map(row)]);
+    const rows = this.game.input.device === 'pad' ? [...pad, ...keys] : [...keys, ...pad];
+    this._show(`<h2>Steuerung</h2><p style="opacity:.8;margin:0 0 8px">Tasten änderst du unter Optionen → Tastatur.</p><div class="keys">${rows.join('')}</div><div id="cb"></div>`);
+    this.box.querySelector('#cb').appendChild(this.backBtn('Zurück', () => this.pauseMenu()));
   }
 
   statsMenu() {
@@ -123,7 +190,7 @@ export class Panels {
       <kbd>Besiegte Gegner</kbd><span>${st.kills || 0}</span><kbd>Schüsse</kbd><span>${st.shots || 0}</span>
       <kbd>Missionen</kbd><span>${st.missionsDone || 0} / ${g.missions?.total || 0}</span>
       <kbd>Immobilien</kbd><span>${Object.keys(g.owned.properties || {}).length}</span><kbd>Eingeloggt als</kbd><span>${g.userName} (${g.rank})</span></div><div id="sb"></div>`);
-    this.box.querySelector('#sb').appendChild(this.btn('Zurück', () => this.pauseMenu()));
+    this.box.querySelector('#sb').appendChild(this.backBtn('Zurück', () => this.pauseMenu()));
   }
 
   friendsMenu() {
@@ -137,7 +204,7 @@ export class Panels {
       row.innerHTML = `<b>${f.name}</b> <span style="opacity:.7">· ${f.role}</span><div style="margin-top:6px;height:8px;border-radius:5px;background:rgba(0,0,0,.4);overflow:hidden"><i style="display:block;height:100%;width:${f.level}%;background:linear-gradient(90deg,#ff5de6,#ffb347)"></i></div><div style="font-size:13px;opacity:.75;margin-top:4px">${f.text}</div>`;
       fl.appendChild(row);
     }
-    this.box.querySelector('#fb').appendChild(this.btn('Zurück', () => this.pauseMenu()));
+    this.box.querySelector('#fb').appendChild(this.backBtn('Zurück', () => this.pauseMenu()));
   }
 
   // ---------- Allgemeines Auswahlmenü (Shops etc.) ----------
@@ -146,7 +213,7 @@ export class Panels {
     this._show(`<h2>${title}</h2>${intro ? `<p style="opacity:.85">${intro}</p>` : ''}<div id="lm"></div><div id="lb"></div>`, items.length > 8);
     const lm = this.box.querySelector('#lm');
     for (const it of items) { const b = this.btn(it.label, () => { it.fn?.(); }, it.sub); if (it.disabled) b.disabled = true; lm.appendChild(b); }
-    this.box.querySelector('#lb').appendChild(this.btn('Schließen', () => { this.close(); onClose?.(); }));
+    this.box.querySelector('#lb').appendChild(this.backBtn('Schließen', () => { this.close(); onClose?.(); }));
   }
 
   // ---------- Admin-Panel ----------
@@ -186,8 +253,8 @@ export class Panels {
       group('Geld', [1000, 10000, 100000, 1000000].map((n) => chip('+' + fmtMoney(n), () => g.addMoney(n))));
       group('Gesundheit', [chip('Volle Gesundheit + Weste', () => { g.player.hp = g.player.maxHp; g.player.armor = 100; }), chip(g.god ? 'Gottmodus aus' : 'Gottmodus an', () => { g.god = !g.god; g.godVehicles = g.god; this.adminMenu('player'); })]);
       group('Waffen', [chip('Alle Waffen + Munition', () => { for (const id of WEAPON_ORDER) if (id !== 'fists') { g.player.giveWeapon(id, 400); g.player.weapons[id].mag = WEAPONS[id].mag || 1; } })]);
-      group('Fahndung', [0, 1, 2, 3, 4, 5].map((n) => chip(n ? `${n} ★` : 'Keine', () => g.police.setWanted(n))).concat([chip(g.police.disabled ? 'Polizei an' : 'Polizei aus', () => { g.police.disabled = !g.police.disabled; g.police.clear(true); this.adminMenu('player'); })]));
-      group('Figur', [chip('Jason', () => g.player.setOutfit('player_jason')), chip('Lucia', () => g.player.setOutfit('player_lucia'))]);
+      group('Fahndung', [0, 1, 2, 3, 4, 5, 6].map((n) => chip(n ? `${n} ★` : 'Keine', () => g.police.setWanted(n))).concat([chip(g.police.disabled ? 'Polizei an' : 'Polizei aus', () => { g.police.disabled = !g.police.disabled; g.police.clear(true); this.adminMenu('player'); })]));
+      group('Figur', [chip(charName('jason'), () => g.player.setOutfit('player_jason')), chip(charName('lucia'), () => g.player.setOutfit('player_lucia'))]);
     } else if (tab === 'system') {
       const r = g.engine.renderer.info;
       const info = document.createElement('div');
@@ -196,6 +263,8 @@ export class Panels {
       ac.appendChild(info);
       group('Werkzeuge', [chip('Verkehr leeren', () => { for (const v of [...g.traffic.cars]) g.vehicles.remove(v); g.traffic.cars.length = 0; }), chip('Alle Wracks entfernen', () => { for (const v of [...g.vehicles.list]) if (v.exploded) g.vehicles.remove(v); }), chip('Missionen zurücksetzen', () => { g.missions?.reset?.(); this.close(); })]);
     }
+    const back = this.backBtn('Zurück zum Pause-Menü', () => { this.adminOpen = false; this.pauseMenu(); });
+    ac.appendChild(back);
     const close = this.btn('Schließen (F4)', () => this.close());
     ac.appendChild(close);
   }

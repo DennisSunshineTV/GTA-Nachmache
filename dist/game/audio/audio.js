@@ -74,6 +74,7 @@ export class AudioSystem {
   reloadSound(ch) { this.at(ch.x, ch.y + 1, ch.z, (d, t) => { const S = this.S; S.noise(t, 0.05, 0.4, { type: 'bandpass', freq: 1800, dest: d }); S.noise(t + 0.55, 0.06, 0.5, { type: 'bandpass', freq: 1200, dest: d }); S.noise(t + 0.9, 0.04, 0.35, { type: 'bandpass', freq: 2200, dest: d }); }, 10, 60); }
   click() { this.now((d, t) => this.S.noise(t, 0.02, 0.3, { type: 'bandpass', freq: 2500, dest: d })); }
   punch(ch) { this.at(ch.x, ch.y + 1, ch.z, (d, t) => { this.S.noise(t, 0.09, 0.5, { type: 'lowpass', freq: 600, dest: d }); this.S.osc('sine', 120, t, 0.08, 0.5, { a: 0.001, d: 0.08, s: 0.01, r: 0.02, slide: 0.5, dest: d }); }, 10, 50); }
+  block(ch) { this.at(ch.x, ch.y + 1.2, ch.z, (d, t) => { this.S.noise(t, 0.05, 0.6, { type: 'bandpass', freq: 1400, dest: d }); this.S.osc('sine', 210, t, 0.05, 0.35, { a: 0.001, d: 0.05, s: 0.01, r: 0.02, dest: d }); }, 10, 50); }
   throwSound(ch) { this.at(ch.x, ch.y + 1, ch.z, (d, t) => this.S.noise(t, 0.2, 0.2, { type: 'bandpass', freq: 800, sweep: 3, dest: d }), 10, 40); }
   thud(x, y, z) { this.at(x, y, z, (d, t) => { this.S.osc('sine', 90, t, 0.18, 0.9, { a: 0.001, d: 0.18, s: 0.01, r: 0.05, slide: 0.4, dest: d }); this.S.noise(t, 0.1, 0.4, { type: 'lowpass', freq: 500, dest: d }); }, 12, 80); }
   hurt() { this.now((d, t) => this.S.noise(t, 0.12, 0.25, { type: 'lowpass', freq: 900, dest: d })); }

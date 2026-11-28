@@ -167,6 +167,11 @@ export class Effects {
     if (Math.random() < 0.3) this.smoke(x, y + 0.6, z, 0.8);
   }
 
+  // Luftblasen beim Tauchen: steigen auf, werden größer
+  bubbles(x, y, z) {
+    for (let i = 0; i < 3; i++) this.smokeP.spawn(x + (Math.random() - 0.5) * 0.2, y, z + (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.3, 1.2 + Math.random() * 0.8, (Math.random() - 0.5) * 0.3, 1.2 + Math.random() * 0.6, 0.06, 0.16, [0.85, 0.95, 1, 0.7], [0.9, 1, 1, 0], -0.6, 0.6);
+  }
+
   dust(x, y, z, n = 4) {
     for (let i = 0; i < n; i++) this.smokeP.spawn(x + (Math.random() - 0.5), y + 0.1, z + (Math.random() - 0.5), (Math.random() - 0.5) * 3, 0.4 + Math.random() * 0.8, (Math.random() - 0.5) * 3, 0.9 + Math.random() * 0.6, 0.5, 2.6, [0.62, 0.55, 0.42, 0.45], [0.6, 0.54, 0.42, 0], 0, 1.6);
   }
@@ -234,7 +239,115 @@ export class Effects {
     this.game.combat?.explosionDamage(x, y, z, radius, damage, source);
   }
 
+  // Fahrzeugexplosion: Blitz, rollender Feuerball mit Nachexplosionen, Funken, fliegende Trümmer (Karosserieteile,
+  // Räder; teils brennend mit Rauchspur), Druckwelle, aufsteigende Rauchsäule, Brandfleck. Schaden wie explosion().
+  vehicleExplosion(v) {
+    const x = v.x, y = v.y + 0.9, z = v.z, rnd = Math.random;
+    const big = v.cls === 'plane' || v.cls === 'heli' || v.type === 'bus' || v.type === 'truck' ? 1.5 : v.cls === 'bike' ? 0.7 : 1;
+    // 1) greller Kern
+    for (let i = 0; i < 8; i++) this.fireP.spawn(x + (rnd() - 0.5), y, z + (rnd() - 0.5), (rnd() - 0.5) * 3, rnd() * 3, (rnd() - 0.5) * 3, 0.2, 5.5 * big, 2.5 * big, [3.6, 2.6, 1.3, 0.9], [2.4, 0.9, 0.2, 0]);
+    // 2) Feuerball: nach außen und oben, wird größer und dunkler
+    const ball = (cx, cy, cz, n, k) => {
+      for (let i = 0; i < n; i++) {
+        const a = rnd() * Math.PI * 2, e = rnd() * 1.2 - 0.15, sp = (3 + rnd() * 8) * k;
+        this.fireP.spawn(cx, cy, cz, Math.cos(a) * Math.cos(e) * sp, Math.sin(e) * sp + 2.5, Math.sin(a) * Math.cos(e) * sp, 0.55 + rnd() * 0.75, 2.2 * k, 4.6 * k, [2.5, 1.15, 0.28, 0.9], [0.7, 0.12, 0.02, 0], -2.2, 2.4);
+      }
+    };
+    ball(x, y, z, 70, big);
+    // 3) Nachexplosionen (Tank, Reifen) für ein rollendes Aufblähen
+    for (const [d, ox, oz, n] of [[0.12, 1.2, 0.4, 28], [0.3, -0.9, -0.8, 24], [0.55, 0.3, 1.1, 18]]) {
+      this.pending.push({ t: d, fn: () => { ball(x + ox, y + 0.6, z + oz, n, big * 0.8); this.flash(x, y + 1.5, z, 0.25, 28, 0xff8a30, 70); this.addShake(0.25); } });
+    }
+    // 4) Funkenregen
+    for (let i = 0; i < 70; i++) { const a = rnd() * Math.PI * 2, sp = 6 + rnd() * 14; this.fireP.spawn(x, y + 0.3, z, Math.cos(a) * sp, 4 + rnd() * 10, Math.sin(a) * sp, 0.7 + rnd() * 0.9, 0.22, 0.06, [3.4, 2.4, 1.1, 1], [1.6, 0.4, 0.05, 0], 16, 0.6); }
+    // 5) Rauchsäule (dunkel, steigt langsam, wird breit) und Bodenstaub
+    for (let i = 0; i < 46; i++) {
+      const a = rnd() * Math.PI * 2, sp = 0.6 + rnd() * 3.5, g = 0.07 + rnd() * 0.07;
+      this.smokeP.spawn(x + Math.cos(a) * rnd() * 1.5, y + 0.5 + rnd() * 1.5, z + Math.sin(a) * rnd() * 1.5, Math.cos(a) * sp, 2.5 + rnd() * 5.5, Math.sin(a) * sp, 4 + rnd() * 4, 2.6 * big, 11 * big, [g, g * 0.95, g * 0.9, 0.85], [0.22, 0.21, 0.2, 0], -0.35, 0.45);
+    }
+    for (let i = 0; i < 24; i++) { const a = (i / 24) * Math.PI * 2, sp = 9 + rnd() * 5; this.smokeP.spawn(x, y - 0.6, z, Math.cos(a) * sp, 0.5 + rnd(), Math.sin(a) * sp, 1.2 + rnd() * 0.8, 1, 4.5, [0.55, 0.5, 0.42, 0.55], [0.5, 0.46, 0.4, 0], 0, 2.2); }
+    // 6) Trümmer: Karosserieteile in Wagenfarbe, dunkle Teile, Räder
+    const CHAR = [0x2b2826, 0x3a3532, 0x1c1b1a, 0x4a3f38];
+    const nd = Math.round(10 * big);
+    for (let i = 0; i < nd; i++) this._debris(x, y, z, CHAR[i % CHAR.length], 'panel', rnd() < 0.5);
+    if (v.cls === 'car' || v.cls === 'bike') for (let i = 0; i < (v.cls === 'bike' ? 1 : 2); i++) this._debris(x, y, z, 0x111111, 'wheel', true);
+    // 7) Druckwelle, Licht, Brandfleck, Schaden
+    const m = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    m.position.set(x, Math.max(0.2, y - 0.7), z);
+    this.game.scene.add(m);
+    this.rings.push({ m, t: 0, r: 9 * big });
+    this.flash(x, y + 1.5, z, 0.9, 34, 0xff8a30, 95);
+    this._scorch(x, z, 3.2 * big);
+    const d = Math.hypot(x - this.game.camera.position.x, z - this.game.camera.position.z);
+    this.addShake(clamp(1.5 - d / 70, 0, 1.5));
+    this.game.audio?.explosion(d);
+    this.game.combat?.explosionDamage(x, y, z, 7 * big, 120, v);
+  }
+
+  _debris(x, y, z, color, kind, burn) {
+    if (!this.debris) { this.debris = []; this.debrisMats = new Map(); this.debrisBox = new THREE.BoxGeometry(1, 1, 1); this.debrisWheel = new THREE.CylinderGeometry(0.36, 0.36, 0.25, 12); this.debrisWheel.rotateZ(Math.PI / 2); }
+    if (this.debris.length > 60) { const o = this.debris.shift(); this.game.scene.remove(o.m); }
+    let mat = this.debrisMats.get(color);
+    if (!mat) { mat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.35 }); this.debrisMats.set(color, mat); }
+    const m = new THREE.Mesh(kind === 'wheel' ? this.debrisWheel : this.debrisBox, mat);
+    if (kind === 'panel') m.scale.set(0.3 + Math.random() * 0.9, 0.04 + Math.random() * 0.08, 0.25 + Math.random() * 0.7);
+    m.position.set(x, y, z); m.castShadow = true;
+    const a = Math.random() * Math.PI * 2, sp = 4 + Math.random() * 9;
+    this.game.scene.add(m);
+    this.debris.push({ m, vx: Math.cos(a) * sp, vy: 7 + Math.random() * 11, vz: Math.sin(a) * sp, wx: (Math.random() - 0.5) * 14, wy: (Math.random() - 0.5) * 10, wz: (Math.random() - 0.5) * 14, t: 0, burn, rest: false, half: kind === 'wheel' ? 0.36 : 0.05 });
+  }
+
+  _scorch(x, z, r) {
+    if (!this.scorchTex) {
+      const S = 128, c = document.createElement('canvas'); c.width = c.height = S;
+      const g = c.getContext('2d');
+      for (let i = 0; i < 26; i++) {
+        const px = S / 2 + (Math.random() - 0.5) * 40, py = S / 2 + (Math.random() - 0.5) * 40, rr = 18 + Math.random() * 30;
+        const gr = g.createRadialGradient(px, py, 0, px, py, rr); gr.addColorStop(0, 'rgba(10,8,6,0.55)'); gr.addColorStop(1, 'rgba(10,8,6,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(px, py, rr, 0, 7); g.fill();
+      }
+      this.scorchTex = new THREE.CanvasTexture(c);
+      this.scorchGeo = new THREE.PlaneGeometry(1, 1); this.scorchGeo.rotateX(-Math.PI / 2);
+      this.scorches = [];
+    }
+    const m = new THREE.Mesh(this.scorchGeo, new THREE.MeshBasicMaterial({ map: this.scorchTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, opacity: 1 }));
+    m.scale.set(r * 2, 1, r * 2); m.rotation.y = Math.random() * 6.28;
+    m.position.set(x, this.game.physics.groundHeight(x, z) + 0.08, z);
+    m.renderOrder = 2;
+    this.game.scene.add(m);
+    this.scorches.push({ m, t: 0 });
+    if (this.scorches.length > 12) { const o = this.scorches.shift(); this.game.scene.remove(o.m); o.m.material.dispose(); }
+  }
+
+  _updateDebris(dt) {
+    const phys = this.game.physics;
+    if (this.debris) {
+      for (let i = this.debris.length - 1; i >= 0; i--) {
+        const d = this.debris[i], m = d.m;
+        d.t += dt;
+        if (!d.rest) {
+          d.vy -= 22 * dt;
+          m.position.x += d.vx * dt; m.position.y += d.vy * dt; m.position.z += d.vz * dt;
+          m.rotation.x += d.wx * dt; m.rotation.y += d.wy * dt; m.rotation.z += d.wz * dt;
+          const gy = phys.groundHeight(m.position.x, m.position.z) + d.half;
+          if (m.position.y < gy) {
+            m.position.y = gy;
+            if (Math.abs(d.vy) < 2.5) { d.rest = true; m.rotation.x = Math.round(m.rotation.x / Math.PI) * Math.PI; m.rotation.z = d.half > 0.2 ? Math.PI / 2 : Math.round(m.rotation.z / Math.PI) * Math.PI; }
+            d.vy = -d.vy * 0.32; d.vx *= 0.55; d.vz *= 0.55; d.wx *= 0.5; d.wy *= 0.5; d.wz *= 0.5;
+          }
+        }
+        if (d.burn && d.t < 3.5 && Math.random() < dt * 22) this.fire(m.position.x, m.position.y + 0.1, m.position.z);
+        if (d.t < 6 && Math.random() < dt * (d.burn ? 6 : 2)) this.smoke(m.position.x, m.position.y + 0.2, m.position.z, 0.5);
+        if (d.t > 25) { const k = Math.max(0, 1 - (d.t - 25) / 3); m.scale.multiplyScalar(k > 0 ? 0.97 : 0); if (k <= 0) { this.game.scene.remove(m); this.debris.splice(i, 1); } }
+      }
+    }
+    if (this.scorches) for (const s of this.scorches) { s.t += dt; if (s.t > 90) s.m.material.opacity = Math.max(0, 1 - (s.t - 90) / 30); }
+    // Verzögerte Effekte
+    for (let i = this.pending.length - 1; i >= 0; i--) { const p = this.pending[i]; p.t -= dt; if (p.t <= 0) { this.pending.splice(i, 1); p.fn(); } }
+  }
+
   update(dt) {
+    this._updateDebris(dt);
     const eng = this.game.engine;
     const fov = this.game.camera.fov * Math.PI / 180;
     const scale = eng.height / (2 * Math.tan(fov / 2));

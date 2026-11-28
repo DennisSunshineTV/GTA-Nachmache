@@ -1,14 +1,24 @@
-// Spieler: Steuerung zu Fuß und in Fahrzeugen, Zielen, Kamera.
+// Spieler: Steuerung zu Fuß und in Fahrzeugen (Tastatur/Maus und Xbox-Controller), Zielen, Klettern, Kamera.
 import * as THREE from 'three';
+import { charName } from '../story/characters.js';
 import { Character } from './character.js';
 import { WEAPON_ORDER, WEAPONS } from '../combat/weapons.js';
 import { clamp, lerp, damp, dampAngle, wrapPi } from '../util.js';
+import { PAD } from '../core/input.js';
 
 const _v = new THREE.Vector3(), _d = new THREE.Vector3();
+const HEAVY_HOLD = 0.35;                 // X so lange (s) halten = schwerer Angriff
+const TAP = 0.22;                        // A kürzer gedrückt = Ausweichen/Kontern, länger = nur Blocken
+const SIDEARMS = ['pistol', 'smg'];      // Waffen, mit denen man aus dem Fahrzeug schießen kann
+// Ausdauer: Sprinten leert die Leiste in STAMINA_SPRINT s. Ist sie leer, ist die Figur erschöpft und geht normal,
+// bis die Leiste wieder ganz voll ist (STAMINA_RECOVER s); sonst füllt sie sich in STAMINA_REGEN s.
+const STAMINA_SPRINT = 7, STAMINA_REGEN = 5, STAMINA_RECOVER = 4.5, STAMINA_PAUSE = 0.8;
+// Tauchen: C bzw. B (Controller) halten = abtauchen, Leertaste bzw. A = auftauchen; Luft reicht O2_TIME s
+const O2_TIME = 30, O2_REFILL = 2.5, DIVE_DOWN = 1.9, DIVE_UP = 2.6, BUOYANCY = 0.45;
 
 export class Player extends Character {
   constructor(game, x, z, who = 'jason') {
-    super(game, 'player', x, z, { outfit: who === 'lucia' ? 'player_lucia' : 'player_jason', name: who === 'lucia' ? 'Lucia' : 'Jason', hp: 200, heading: 0 });
+    super(game, 'player', x, z, { outfit: who === 'lucia' ? 'player_lucia' : 'player_jason', name: charName(who), hp: 200, heading: 0 });
     this.who = who;
     this.isPlayer = true;
     this.maxHp = 200; this.hp = 200;
@@ -31,14 +41,55 @@ export class Player extends Character {
     this.smoothDist = 3.8;
     this.camInit = false;
     this.camShakeT = 0;
+    this.sidearm = null; this.footWeapon = null;   // gezogene Seitenwaffe im Fahrzeug
+    this.stamina = 1; this.exhausted = false; this.staminaWait = 0;
+    this.o2 = 1; this.diveDepth = 0; this.diveDir = 0; this.diving = false;
+    this._resetPadFoot();
+  }
+
+  // Zustände der Controller-Steuerung zu Fuß (LS rennen, B ducken, A/X gedrückt halten)
+  _resetPadFoot() {
+    this.padSprint = false; this.padCrouch = false;
+    this.aT = null; this.xT = null;      // Haltedauer von A (Nahkampf) bzw. X
+    this.blocking = false; this.faceLock = null;
   }
 
   update(dt, input) {
     const g = this.game;
     if (this.alive && g.controlsEnabled) this.handleInput(dt, input);
-    else { this.intent.mx = this.intent.mz = 0; this.intent.fire = false; this.intent.aim = false; this.intent.speed = 0; if (this.vehicle) { const c = this.vehicle.ctl; c.throttle = 0; c.brake = 0.6; c.steer = 0; } }
+    else { this._resetPadFoot(); this.intent.mx = this.intent.mz = 0; this.intent.fire = false; this.intent.aim = false; this.intent.speed = 0; if (this.vehicle) { const c = this.vehicle.ctl; c.throttle = 0; c.brake = 0.6; c.steer = 0; } }
     super.update(dt);
     this.recoil = Math.max(0, this.recoil - dt * 0.35);
+    this._stamina(dt);
+    this._oxygen(dt);
+  }
+
+  // Sauerstoff: sinkt, solange der Kopf unter Wasser ist; bei 0 ertrinkt die Figur
+  _oxygen(dt) {
+    const g = this.game;
+    const under = this.alive && this.state === 'swim' && this.diveDepth > 0.6;
+    this.diving = under;
+    if (this.state !== 'swim') this.diveDepth = 0;
+    if (under) {
+      this.o2 = Math.max(0, this.o2 - dt / O2_TIME);
+      if (Math.random() < dt * 2.5) g.effects.bubbles?.(this.x + Math.sin(this.h) * 0.4, this.y + 1.2, this.z + Math.cos(this.h) * 0.4);
+      if (this.o2 <= 0 && !g.god) { this.drowned = true; this.armor = 0; this.hurt(this.hp + 50); }
+    } else this.o2 = Math.min(1, this.o2 + dt / O2_REFILL);
+    if (this.state === 'swim' && !this._swimHint) { this._swimHint = true; g.ui?.setHint(g.input.device === 'pad' ? 'Im Wasser: B halten = tauchen · A = auftauchen' : 'Im Wasser: C halten = tauchen · Leertaste = auftauchen'); }
+  }
+
+  // Ausdauer verbrauchen bzw. auffüllen (nur echtes Sprinten zu Fuß zählt)
+  _stamina(dt) {
+    const running = this.sprinting && !this.vehicle && this.alive && this.state === 'ground' && this.speedH > 1.5;
+    if (running && !this.game.god) {
+      this.stamina = Math.max(0, this.stamina - dt / STAMINA_SPRINT);
+      this.staminaWait = STAMINA_PAUSE;
+      if (this.stamina <= 0) this.exhausted = true;
+      return;
+    }
+    if (this.staminaWait > 0) { this.staminaWait -= dt; return; }
+    this.stamina = Math.min(1, this.stamina + dt / (this.exhausted ? STAMINA_RECOVER : STAMINA_REGEN));
+    if (this.exhausted && this.stamina >= 1) this.exhausted = false;
   }
 
   handleInput(dt, input) {
@@ -46,11 +97,15 @@ export class Player extends Character {
     const I = this.intent;
     const m = input.mouse;
     const pad = input.pad;
-    // Kamera: Maus + rechter Stick
+    // Kamera: Maus + rechter Stick (der Stick wählt stattdessen aus, solange Waffenrad oder Fahrzeugmenü offen sind)
     const sens = 0.0023 * input.sens * (this.aiming ? (this.weapon?.zoom ? 0.35 : 0.7) : 1);
     let dyaw = -m.dx * sens, dpitch = (input.invertY ? m.dy : -m.dy) * sens;
-    if (pad.active) { dyaw -= pad.rx * dt * 2.4; dpitch -= pad.ry * dt * 1.8 * (input.invertY ? -1 : 1); }
-    if (Math.abs(m.dx) + Math.abs(m.dy) > 0.5 || (pad.active && (pad.rx || pad.ry))) this.idleCam = 0; else this.idleCam += dt;
+    const look = pad.active && !g.ui?.padui?.usesRightStick;
+    if (look) {
+      const slow = this.aiming || this.sidearm ? (this.weapon?.zoom ? 0.35 : 0.65) : 1;   // beim Zielen feiner
+      dyaw -= pad.rx * dt * 2.4 * slow; dpitch -= pad.ry * dt * 1.8 * slow * (input.invertY ? -1 : 1);
+    }
+    if (Math.abs(m.dx) + Math.abs(m.dy) > 0.5 || (look && (pad.rx || pad.ry))) this.idleCam = 0; else this.idleCam += dt;
     this.camYaw += dyaw;
     this.camPitch = clamp(this.camPitch + dpitch, -1.25, 1.2);
     if (this.camYaw > Math.PI) this.camYaw -= Math.PI * 2; else if (this.camYaw < -Math.PI) this.camYaw += Math.PI * 2;
@@ -63,16 +118,16 @@ export class Player extends Character {
         const i = owned.indexOf(this.cur);
         this.setWeapon(owned[(i + (m.wheel > 0 ? 1 : -1) + owned.length) % owned.length]);
       }
-      if (pad.active && pad.btnPressed.has(5)) { const owned = WEAPON_ORDER.filter((id) => this.hasWeapon(id)); const i = owned.indexOf(this.cur); this.setWeapon(owned[(i + 1) % owned.length]); }
     }
 
-    if (this.vehicle) { this.driveInput(dt, input); return; }
+    if (this.vehicle) { this._resetPadFoot(); this.driveInput(dt, input); return; }
+    if (this.climb) { this._resetPadFoot(); I.mx = I.mz = 0; I.speed = 0; I.aim = I.jump = false; this.aiming = false; return; }
 
     // ----- Zu Fuß -----
     const W = this.weapon;
     const gun = W && !W.melee && !W.thrown && W.model;
     let ix = (input.key('KeyD') ? 1 : 0) - (input.key('KeyA') ? 1 : 0), iz = (input.key('KeyW') ? 1 : 0) - (input.key('KeyS') ? 1 : 0);
-    if (pad.active) { ix += pad.lx; iz -= pad.ly; }
+    ix += pad.lx; iz -= pad.ly;
     const f = { x: Math.sin(this.camYaw), z: Math.cos(this.camYaw) };
     const r = { x: -f.z, z: f.x };
     let mx = f.x * iz + r.x * ix, mz = f.z * iz + r.z * ix;
@@ -80,27 +135,132 @@ export class Player extends Character {
     if (mag > 1) { mx /= mag; mz /= mag; }
     I.mx = mx; I.mz = mz;
     I.speed = Math.min(1, mag);
-    I.sprint = (input.key('ShiftLeft') || input.key('ShiftRight') || (pad.active && pad.btn.has(10))) && mag > 0.1 && !this.aiming;
-    I.jump = input.hit('Space') || (pad.active && pad.btnPressed.has(0));
-    I.crouch = input.key('KeyC');
+    // Rennen: LS drücken rastet ein, bis der Stick losgelassen oder gezielt wird
+    if (input.padHit(PAD.LS)) { this.padSprint = true; this.padCrouch = false; }
+    if (mag < 0.3 || this.aiming) this.padSprint = false;
+    // Ducken: B schaltet um
+    if (input.padHit(PAD.B)) { this.padCrouch = !this.padCrouch; this.padSprint = false; }
+    I.sprint = (input.key('ShiftLeft') || input.key('ShiftRight') || this.padSprint) && mag > 0.1 && !this.aiming && !this.exhausted;
+    if (I.sprint) this.padCrouch = false;
+    I.jump = input.hit('Space');
+    I.crouch = input.key('KeyC') || this.padCrouch;
+    // Im Wasser: tauchen und auftauchen statt springen und ducken
+    if (this.state === 'swim') {
+      const down = input.key('KeyC') || input.key('ControlLeft') || input.padDown(PAD.B);
+      const up = input.key('Space') || input.padDown(PAD.A);
+      const maxD = Math.max(0, (this.inPool ? g.physics.poolLevel(this.inPool) : 0) - 1.0 - (g.physics.groundHeight(this.x, this.z) + 0.35));
+      const d0 = this.diveDepth;
+      if (down) this.diveDepth = Math.min(maxD, this.diveDepth + dt * DIVE_DOWN);
+      else if (up) this.diveDepth = Math.max(0, this.diveDepth - dt * DIVE_UP);
+      else this.diveDepth = Math.max(0, this.diveDepth - dt * BUOYANCY);
+      this.diveDir = Math.sign(this.diveDepth - d0);
+      I.jump = false; I.crouch = false; this.padCrouch = false;
+    }
+    // Pool: Schwimmt (oder watet) man gegen den Beckenrand, klettert die Figur von selbst hinaus (auch mit Leertaste)
+    if (this.inPool && this.atPoolRim && Math.hypot(I.mx, I.mz) > 0.3) {
+      this.rimT = (this.rimT || 0) + dt;
+      if ((this.rimT > 0.3 || input.hit('Space')) && this.tryClimb()) { this.rimT = 0; I.mx = I.mz = 0; I.speed = 0; I.aim = false; this.aiming = false; return; }
+    } else this.rimT = 0;
+    // A: springen bzw. klettern – im Nahkampf stattdessen halten = blocken, kurz tippen = ausweichen/kontern
+    if (input.padHit(PAD.A)) {
+      if (this.state === 'ground' && !I.sprint && g.combat.opponent(this)) this.aT = 0;
+      else if (this.state === 'ground' || this.state === 'swim') {
+        if (this.tryClimb()) { I.mx = I.mz = 0; I.speed = 0; I.aim = false; this.aiming = false; return; }
+        if (this.state === 'ground') { I.jump = true; this.padCrouch = false; I.crouch = input.key('KeyC'); }
+      }
+    }
+    this.blocking = false; this.faceLock = null;
+    if (this.aT !== null) {
+      if (input.padDown(PAD.A)) { this.aT += dt; this.blocking = this.state === 'ground'; }
+      else { if (this.aT < TAP) g.combat.evade(this, mx, mz); this.aT = null; }
+    }
+    if (this.blocking) {
+      const foe = g.combat.opponent(this);
+      if (foe) this.faceLock = Math.atan2(foe.x - this.x, foe.z - this.z);
+      I.mx *= 0.5; I.mz *= 0.5; I.speed = Math.min(I.speed, 0.5); I.sprint = false; I.jump = false;
+    }
+    if (this.dodgeT > 0 && this.dodgeDir) { I.mx = this.dodgeDir.x; I.mz = this.dodgeDir.z; I.speed = 1; I.sprint = true; I.jump = false; this.faceLock = this.h; }
+    // X: tippen = Schlag/Tritt, halten = schwerer Angriff
+    if (input.padHit(PAD.X)) this.xT = 0;
+    if (this.xT !== null) {
+      if (input.padDown(PAD.X)) { this.xT += dt; if (this.xT >= HEAVY_HOLD) { g.combat.strike(this, 'heavy'); this.xT = null; } }
+      else { g.combat.strike(this, 'light'); this.xT = null; }
+    }
     // Zielen
-    const wantAim = (input.mouseDown(2) || (pad.active && pad.lt > 0.4)) && (gun || W?.thrown);
-    const wantFire = input.mouseDown(0) || (pad.active && pad.rt > 0.4);
-    this.aiming = !!(wantAim || (wantFire && gun));
+    const guarded = this.blocking || this.dodgeT > 0;
+    const trigger = input.padHit(PAD.RT);
+    const wantAim = (input.mouseDown(2) || pad.lt > 0.4) && (gun || W?.thrown);
+    const wantFire = (input.mouseDown(0) || input.padDown(PAD.RT)) && !guarded && !this.nozzle;
+    this.aiming = !!(wantAim || (wantFire && gun)) && !guarded;
     I.aim = this.aiming;
     if (this.aiming) this.computeAim();
     else { I.ax = f.x; I.az = f.z; I.ay = 0; }
     // Schießen / Angreifen
     if (wantFire) {
-      if (W.melee) { if (input.mouseHit(0) || input.mouse.buttons & 1) g.combat.tryFire(this); }
-      else if (W.thrown) { if (input.mouseHit(0) || input.mouseHit(2)) { I.aim = true; this.computeAim(); g.combat.tryFire(this); } }
-      else if (W.auto || input.mouseHit(0) || (pad.active && pad.rt > 0.4)) g.combat.tryFire(this);
+      if (W.melee) { if (input.mouseHit(0) || input.mouse.buttons & 1 || trigger) g.combat.tryFire(this); }
+      else if (W.thrown) { if (input.mouseHit(0) || input.mouseHit(2) || trigger) { I.aim = true; this.computeAim(); g.combat.tryFire(this); } }
+      else if (W.auto || input.mouseHit(0) || trigger) g.combat.tryFire(this);
     }
     if (input.hit('KeyR')) this.reload();
-    if (input.hit('KeyF')) g.interact();
+    if (input.hit('KeyF') || input.padHit(PAD.Y)) g.interact();
     if (this.state === 'swim') { I.sprint = false; }
     // Sprint-Kamera
     this.sprinting = I.sprint;
+  }
+
+  // ----- Klettern -----
+  // Niedrige Hindernisse (Mauern, Felsen, stehende Fahrzeuge, bis gut 2 m) überklettern oder auf eine Kante (Kai, Steg,
+  // Geländeabsatz) steigen. Liefert true, wenn die Figur losklettert.
+  tryClimb() {
+    const g = this.game, phys = g.physics, I = this.intent;
+    const m = Math.hypot(I.mx, I.mz);
+    const dx = m > 0.3 ? I.mx / m : Math.sin(this.h), dz = m > 0.3 ? I.mz / m : Math.cos(this.h);
+    const at = (d) => ({ x: this.x + dx * d, z: this.z + dz * d });
+    // höchste Oberkante der Hindernisse an dieser Stelle (null = frei)
+    const obstacle = ({ x, z }) => {
+      let top = null;
+      phys.pushCircle({ x, z }, 0.3, this.y + 0.35, this.y + 2.2, (c) => { top = Math.max(top ?? -1e9, c.y1); });
+      for (const v of g.vehicles.list) {
+        if (!v.alive || Math.abs(v.speed) > 1.5 || v.y > this.y + 2 || v.y + v.height < this.y + 0.35) continue;
+        const ex = x - v.x, ez = z - v.z;
+        const along = ex * Math.sin(v.h) + ez * Math.cos(v.h), side = ex * Math.cos(v.h) - ez * Math.sin(v.h);
+        if (Math.abs(along) < v.hl + 0.25 && Math.abs(side) < v.hw + 0.25) top = Math.max(top ?? -1e9, v.y + v.height);
+      }
+      return top;
+    };
+    const standable = (p, y) => !phys.pushCircle({ x: p.x, z: p.z }, this.radius, y + 0.2, y + 1.8);
+
+    // 1) Über ein Hindernis: dahinter muss Platz sein
+    for (let d = 0.35; d <= 1.2; d += 0.2) {
+      let peak = obstacle(at(d));
+      if (peak === null) continue;
+      for (let e = d + 0.3; e <= d + 3.4 && peak - this.y <= 2.2; e += 0.2) {
+        const p = at(e), top = obstacle(p);
+        if (top !== null) { peak = Math.max(peak, top); continue; }
+        const y = phys.groundHeight(p.x, p.z);
+        if (y - this.y > 1 || this.y - y > 2.5) return false;
+        if (standable(p, y)) { this._startClimb({ x: p.x, y, z: p.z }, peak - 0.25, false); return true; }
+      }
+      return false;
+    }
+    // 2) Auf eine Kante: der Boden vor der Figur liegt deutlich höher
+    for (let d = 0.5; d <= 1.35; d += 0.2) {
+      const q = at(d);
+      if (phys.groundHeight(q.x, q.z) - this.y < 0.7) continue;
+      const p = at(d + 0.35), y = phys.groundHeight(p.x, p.z), rise = y - this.y;
+      if (rise < 0.7 || rise > 2.4 || !standable(p, y)) return false;
+      this._startClimb({ x: p.x, y, z: p.z }, y, true);
+      return true;
+    }
+    return false;
+  }
+
+  _startClimb(to, peak, ledge) {
+    const height = Math.max(0.6, (ledge ? to.y : peak) - this.y);
+    this.climb = { t: 0, dur: 0.45 + height * 0.25, from: { x: this.x, y: this.y, z: this.z }, to, peak, ledge };
+    this.h = Math.atan2(to.x - this.x, to.z - this.z);
+    this.state = 'ground'; this.vy = 0; this.padCrouch = false; this.padSprint = false;
+    this.game.audio?.throwSound(this);
   }
 
   // Zielpunkt aus der Bildmitte
@@ -131,45 +291,77 @@ export class Player extends Character {
     const c = v.ctl;
     const pad = input.pad;
     const k = (code) => (input.key(code) ? 1 : 0);
-    const up = k('KeyW') + (pad.active ? pad.rt : 0), down = k('KeyS') + (pad.active ? pad.lt : 0);
-    const left = k('KeyA') + (pad.active ? Math.max(0, -pad.lx) : 0), right = k('KeyD') + (pad.active ? Math.max(0, pad.lx) : 0);
+    const b = (i) => (input.padDown(i) ? 1 : 0);
+    const up = k('KeyW') + pad.rt, down = k('KeyS') + pad.lt;
+    const left = k('KeyA') + Math.max(0, -pad.lx), right = k('KeyD') + Math.max(0, pad.lx);
     const cls = v.cls;
     c.handbrake = false; c.brake = 0;
     if (cls === 'plane') {
-      c.pitch = (k('KeyS') - k('KeyW')) + (pad.active ? -pad.ly : 0) * -1;
-      c.roll = right - left;
-      c.yaw = k('KeyQ') - k('KeyE');
-      c.lift = (input.key('ShiftLeft') ? 1 : 0) - (input.key('KeyX') ? 1 : 0);
-      c.brake = input.key('Space') ? 1 : 0;
+      c.pitch = clamp(k('KeyS') - k('KeyW') + pad.ly, -1, 1);
+      c.roll = clamp(right - left, -1, 1);
+      c.yaw = clamp(k('KeyQ') - k('KeyE') + b(PAD.LB) - b(PAD.RB), -1, 1);
+      c.lift = clamp(k('ShiftLeft') - k('KeyX') + pad.rt - pad.lt, -1, 1);
+      c.brake = input.key('Space') || b(PAD.A) ? 1 : 0;
       c.steer = left - right; // Bodenlenkung (positiv = links)
     } else if (cls === 'heli') {
-      c.pitch = k('KeyW') - k('KeyS');
-      c.roll = k('KeyE') - k('KeyQ');
-      c.yaw = right - left;
-      c.lift = (input.key('Space') ? 1 : 0) - (input.key('ShiftLeft') ? 1 : 0) + 0.0;
+      c.pitch = clamp(k('KeyW') - k('KeyS') - pad.ly, -1, 1);
+      c.roll = clamp(k('KeyE') - k('KeyQ') + pad.lx, -1, 1);
+      c.yaw = clamp(k('KeyD') - k('KeyA') + b(PAD.RB) - b(PAD.LB), -1, 1);
+      c.lift = clamp(k('Space') - k('ShiftLeft') + pad.rt - pad.lt, -1, 1);
     } else {
       c.throttle = clamp(up - down, -1, 1);
       c.steer = clamp(left - right, -1, 1);
-      c.handbrake = input.key('Space');
-      if (cls === 'tank') { c.throttle = clamp(up - down, -1, 1); }
+      c.handbrake = input.key('Space') || input.padDown(PAD.A);
       if (input.key('ShiftLeft') && cls === 'bike') c.throttle = Math.max(c.throttle, 0.9);
+      // Ein abgestellter Motor (Fahrzeugmenü) springt beim Gasgeben wieder an
+      if (!v.engineOn && Math.abs(c.throttle) > 0.1 && !v.burning && !v.exploded) v.engineOn = true;
     }
-    if (input.hit('KeyH')) v.horn = 0.4;
-    if (input.key('KeyH')) this.game.audio?.horn(v);
+    if (input.hit('KeyH') || input.padHit(PAD.LS)) v.horn = 0.4;
+    if (input.key('KeyH') || input.padDown(PAD.LS)) this.game.audio?.horn(v);
     if (input.hit('KeyL')) v.lightsOn = !v.lightsOn;
-    if (input.hit('KeyF')) this.game.exitVehicle(this);
+    if (input.hit('KeyF') || input.padHit(PAD.Y)) { this.game.exitVehicle(this); if (!this.vehicle) return; }
     // Radio
     if (cls !== 'plane' && cls !== 'heli') {
       if (input.hit('KeyE')) this.game.radio?.next(1);
       if (input.hit('KeyQ')) this.game.radio?.next(-1);
     }
-    // Waffen aus dem Fahrzeug (Beifahrer-Stil: Pistole/Smg nach vorne bei Bike nicht)
+    // Schießen aus dem Fahrzeug (Controller): LB zieht die Seitenwaffe (nochmal: wechseln bzw. wegstecken), RB schießt
     this.aiming = false; this.intent.aim = false;
+    if (cls !== 'plane' && cls !== 'heli') {
+      if (input.padHit(PAD.LB) || (input.padHit(PAD.RB) && !this.sidearm)) this.cycleSidearm();
+      if (this.sidearm) this.driveBy(input.padDown(PAD.RB), input.padHit(PAD.RB));
+    }
     if (input.hit('KeyV')) this.firstPerson = !this.firstPerson;
     if (input.hit('KeyX') && cls === 'car') { /* Rückblick */ }
     // Hupe/Sirene bei Polizei
     if (v.type === 'police' && input.hit('KeyG')) v.sirenOn = !v.sirenOn;
     // Gabelstapler: Gabeln heben mit Q/E
+  }
+
+  // Seitenwaffe im Fahrzeug: Pistole → Maschinenpistole → weggesteckt
+  cycleSidearm() {
+    const list = SIDEARMS.filter((id) => { const w = this.weapons[id]; return w && w.mag + w.reserve > 0; });
+    if (!list.length && !this.sidearm) { this.game.ui?.notify('Keine Seitenwaffe mit Munition (Pistole oder Maschinenpistole)', 'warn'); return; }
+    const next = list[list.indexOf(this.sidearm) + 1];
+    if (!next) { this.holsterSidearm(); return; }
+    if (!this.sidearm) this.footWeapon = this.cur;
+    this.sidearm = next;
+    this.setWeapon(next);
+    this.game.ui?.notify(`Seitenwaffe: ${WEAPONS[next].name}`, 'info', 1600);
+  }
+
+  holsterSidearm() {
+    if (!this.sidearm) return;
+    this.sidearm = null; this.intent.aim = false; this.aimTarget = null;
+    this.setWeapon(this.footWeapon || 'fists');
+  }
+
+  // Zielen über die Bildmitte; Dauerfeuer bei der Maschinenpistole, sonst ein Schuss je Tastendruck
+  driveBy(fire, pressed) {
+    if (fire) this.idleCam = 0;
+    this.computeAim();
+    this.intent.aim = true;
+    if (fire && (this.weapon.auto || pressed)) this.game.combat.tryFire(this);
   }
 
   // ----- Kamera -----
@@ -188,7 +380,7 @@ export class Player extends Character {
       fov = 62 + clamp(sp / 70, 0, 1) * 18;
       // Nach kurzer Ruhe hinter das Fahrzeug zurückschwenken
       const behind = v.h;
-      const follow = v.cls === 'plane' || v.cls === 'heli' ? 0.9 : clamp((this.idleCam - 0.7) * 1.2, 0, 1) * (Math.abs(v.speed) > 1.5 ? 1 : 0.15);
+      const follow = v.cls === 'plane' || v.cls === 'heli' ? 0.9 : clamp((this.idleCam - (this.sidearm ? 3 : 0.7)) * 1.2, 0, 1) * (Math.abs(v.speed) > 1.5 ? 1 : 0.15);
       if (follow > 0) {
         // Bei Rückwärtsfahrt hinter dem Fahrzeug bleiben (Kamera schaut in Fahrtrichtung der Karosserie)
         this.camYaw = dampAngle(this.camYaw, behind, 2.2 * follow, dt);
@@ -216,7 +408,7 @@ export class Player extends Character {
     const pos = target.clone().addScaledVector(dir, hitD);
     // Nicht unter den Boden / das Wasser
     const gh = phys.groundHeight(pos.x, pos.z);
-    pos.y = Math.max(pos.y, gh + 0.45, 0.4);
+    pos.y = Math.max(pos.y, gh + 0.45, this.diveDepth > 0.3 ? -60 : phys.waterSurface(pos.x, pos.z) + 0.4);   // beim Tauchen darf die Kamera mit unter Wasser (Meer und Pool)
     if (!this.camInit) { this.camPos.copy(pos); this.camInit = true; } else {
       const k = 1 - Math.exp(-(hitD < L ? 30 : 16) * dt);
       this.camPos.lerp(pos, k);

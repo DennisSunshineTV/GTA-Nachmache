@@ -87,7 +87,12 @@ function buildFinca(ctx, rng, x, z, rot, boss) {
   // Mauern (Terrasse)
   const WW = W + 26, DD = D + 24;
   const seg = 4;
-  const gapSide = rng.int(0, 3);
+  rng.int(0, 3);                  // (Zufallszahl weiter ziehen, damit alle übrigen Fincas gleich bleiben)
+  // Das Tor liegt auf der Seite, die zur nächsten Straße zeigt – dort kommt der Feldweg an
+  const front = localPos(x, z, rot, 0, -DD / 2 - 2);
+  const near = net.nearest(front[0], front[1], 650, (r) => r.kind !== 'track' && !r.noTraffic);
+  const lead = near ? [Math.cos(rot) * (near.x - x) - Math.sin(rot) * (near.z - z), Math.sin(rot) * (near.x - x) + Math.cos(rot) * (near.z - z)] : [0, -1];
+  const gapSide = Math.abs(lead[1]) / DD >= Math.abs(lead[0]) / WW ? (lead[1] < 0 ? 0 : 1) : (lead[0] < 0 ? 2 : 3);
   const wall = (side, cx, cz, len, along) => {
     const n = Math.floor(len / seg);
     for (let k = 0; k < n; k++) {
@@ -120,11 +125,13 @@ function buildFinca(ctx, rng, x, z, rot, boss) {
   ctx.pois.push({ id: 'finca' + ctx.fincas.length, type: boss ? 'bossfinca' : 'finca', x, z, label: boss ? 'Finca Son Vidal' : 'Finca' });
   ctx.fincas.push({ x, z, rot, boss: !!boss, main });
 
-  // Feldweg zur nächsten Straße
-  const gate = localPos(x, z, rot, 0, -DD / 2 - 2);
-  const near = net.nearest(gate[0], gate[1], 650, (r) => r.kind !== 'track' && !r.noTraffic);
+  // Feldweg vom Hof durch das Tor zur nächsten Straße (bis vor das Haus bzw. knapp hinter die Mauer)
   if (near && near.d > 30) {
-    const mid = [(gate[0] + near.x) / 2 + rng.range(-25, 25), (gate[1] + near.z) / 2 + rng.range(-25, 25)];
-    net.addLate('track', [gate, mid, [near.x, near.z]], { yB: near.y, hf, name: 'Camí de Finca', noTraffic: true });
+    const [inside, outside] = [
+      [[0, -D / 2 - 3.5], [0, -DD / 2 - 2]], [[0, D / 2 + 3.5], [0, DD / 2 + 2]],
+      [[-WW / 2 + 1, -2.5], [-WW / 2 - 2, 0]], [[WW / 2 - 1, 1.5], [WW / 2 + 2, 0]],
+    ][gapSide].map(([lx, lz]) => localPos(x, z, rot, lx, lz));
+    const mid = [(outside[0] + near.x) / 2 + rng.range(-25, 25), (outside[1] + near.z) / 2 + rng.range(-25, 25)];
+    net.addLate('track', [inside, outside, mid, [near.x, near.z]], { yB: near.y, hf, name: 'Camí de Finca', noTraffic: true });
   }
 }

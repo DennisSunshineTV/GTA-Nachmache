@@ -98,6 +98,7 @@
     .card span { display: block; margin-top: 6px; font-size: 14px; opacity: 0.8; line-height: 1.45; }
     .mbox { width: min(560px, 92vw); max-height: 86vh; overflow: auto; padding: 26px 28px; text-align: left; background: rgba(22, 12, 42, 0.95); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 16px; box-shadow: 0 20px 70px rgba(0, 0, 0, 0.6); }
     .mbox h2 { margin: 0 0 14px; }
+    .mbox.wide { width: min(780px, 94vw); }
     .mbox .row { display: flex; align-items: center; gap: 14px; margin: 12px 0; }
     .mbox .row label { flex: 1; }
     .mbox .row input[type=range] { width: 190px; }
@@ -106,6 +107,55 @@
     .mbox .btns { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
     .mbox .btns button { flex: 1; min-width: 140px; }
     #modal { background: rgba(5, 2, 15, 0.7); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+
+    /* ---------- Fenster „Spiel starten“ ---------- */
+    .mbox.start {
+      width: min(480px, 92vw); padding: 28px; border: 1px solid transparent; border-radius: 24px;
+      background:
+        radial-gradient(120% 70% at 0% 0%, rgba(255, 107, 214, 0.2), transparent 60%) padding-box,
+        radial-gradient(100% 60% at 100% 100%, rgba(124, 58, 237, 0.22), transparent 65%) padding-box,
+        linear-gradient(#170d2c, #170d2c) padding-box,
+        linear-gradient(140deg, rgba(255, 179, 71, 0.75), rgba(255, 107, 214, 0.3) 40%, rgba(255, 255, 255, 0.12) 65%, rgba(179, 107, 255, 0.7)) border-box;
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.65), 0 0 60px rgba(179, 107, 255, 0.18);
+      animation: start-in 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+    }
+    @keyframes start-in { from { opacity: 0; transform: translateY(16px) scale(0.96); } }
+    .mbox.start h2 { margin: 0; font-size: 28px; font-weight: 900; letter-spacing: -0.01em; }
+    .start .lead { margin: 4px 0 20px; font-size: 14px; color: #b9aed6; }
+    .save-card { padding: 16px; border-radius: 16px; background: rgba(255, 255, 255, 0.055); border: 1px solid rgba(255, 255, 255, 0.1); }
+    .save-head { display: flex; align-items: center; gap: 14px; }
+    .save-ava { flex: none; width: 64px; height: 64px; border-radius: 14px; overflow: hidden; background: linear-gradient(160deg, #2a1650, #7a2c8f 55%, #ff8a3d); }
+    .save-ava svg { display: block; width: 100%; height: 100%; }
+    .save-who { min-width: 0; }
+    .save-who small { display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #ff9fe2; }
+    .save-who b { display: block; margin: 2px 0 1px; font-size: 20px; }
+    .save-who span { font-size: 13px; color: #b9aed6; }
+    .save-stats { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; margin: 14px 0 0; }
+    .save-stats div { padding: 10px 8px; text-align: center; border-radius: 12px; background: rgba(0, 0, 0, 0.28); }
+    .save-stats dt { font-size: 11px; color: #9d92bd; }
+    .save-stats dd { margin: 3px 0 0; font-size: 16px; font-weight: 800; white-space: nowrap; }
+    .save-stats .money dd { color: #6ee7a8; }
+    .start-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+    .start-actions button {
+      display: flex; align-items: center; justify-content: center; gap: 9px; padding: 13px 12px;
+      font: inherit; font-size: 15px; font-weight: 700; color: #fff; cursor: pointer;
+      background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 14px;
+      transition: background 0.18s, border-color 0.18s, transform 0.18s, box-shadow 0.18s, filter 0.18s, color 0.18s;
+    }
+    .start-actions button:hover { background: rgba(255, 255, 255, 0.13); border-color: rgba(255, 141, 233, 0.6); transform: translateY(-2px); }
+    .start-actions button:active { transform: translateY(0) scale(0.98); }
+    .start-actions button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    .start-actions svg { flex: none; width: 18px; height: 18px; }
+    .start-actions #m-pick, .start-actions #m-new { padding: 13px 6px; font-size: 14px; white-space: nowrap; }
+    .start-actions .go {
+      grid-column: 1 / -1; padding: 16px; font-size: 17px; border: 0; text-shadow: 0 1px 6px rgba(60, 0, 60, 0.45);
+      background: linear-gradient(100deg, #ff8a3d, #ec3f9e 55%, #8b45f0); box-shadow: 0 10px 30px rgba(236, 63, 158, 0.38);
+    }
+    .start-actions .go:hover { background: linear-gradient(100deg, #ff8a3d, #ec3f9e 55%, #8b45f0); filter: brightness(1.1); box-shadow: 0 14px 38px rgba(236, 63, 158, 0.55); }
+    .start-actions .quiet { grid-column: 1 / -1; padding: 8px; font-size: 14px; font-weight: 600; color: #9d92bd; background: transparent; border-color: transparent; }
+    .start-actions .quiet:hover { color: #fff; background: rgba(255, 255, 255, 0.05); border-color: transparent; transform: none; }
+    @media (max-width: 500px) { .start-actions { grid-template-columns: 1fr; } .mbox.start { padding: 20px; } .save-stats dd { font-size: 14px; } }
+    @media (prefers-reduced-motion: reduce) { .mbox.start { animation: none; } .start-actions button { transition: none; } }
     #toast { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); z-index: 90; padding: 12px 22px; border-radius: 12px; background: rgba(0, 0, 0, 0.8); border: 1px solid rgba(255, 255, 255, 0.25); max-width: 90vw; text-align: center; }
     .friend { margin: 10px 0; padding: 10px 14px; border-radius: 10px; background: rgba(255, 255, 255, 0.07); }
     .friend i { display: block; height: 8px; margin-top: 6px; border-radius: 5px; background: linear-gradient(90deg, #ff5de6, #ffb347); }
@@ -205,9 +255,33 @@
     .actions { display: flex; justify-content: flex-end; gap: 10px; }
 
     /* ---------- Admin-Menü ---------- */
-    .table-wrap { max-height: 60vh; overflow: auto; }
+    #adminDialog { overflow: hidden; }
+    #adminDialog.wide { width: min(98vw, 1320px); }
+    .ev-register { color: #86efac; font-weight: 600; }
+    .ev-failed { color: #fca5a5; font-weight: 600; }
+    .ev-login { color: #fff; }
+    .st-on { color: #4ade80; font-weight: 700; }
+    .st-off { color: #f87171; font-weight: 700; }
+    .table-wrap { overflow: hidden; }
+    .tabs { display: flex; gap: 6px; margin: 0 0 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.15); }
+    .tab {
+      padding: 9px 18px;
+      font: inherit;
+      font-weight: 600;
+      color: #cfc6e6;
+      background: transparent;
+      border: 0;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+    }
+    .tab:hover { color: #fff; }
+    .tab.on { color: #fff; border-bottom-color: #a78bfa; }
+    .tabpanel[hidden] { display: none; }
+    .pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 12px; font-size: 0.9rem; color: #cfc6e6; }
+    .pager[hidden] { display: none; }
+    .pager .btn:disabled { opacity: 0.4; cursor: default; }
     table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-    th, td { padding: 8px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
+    th, td { padding: 8px 6px; text-align: left; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }
     th { position: sticky; top: 0; background: #1d1033; color: #cfc6e6; font-weight: 600; }
     td input, td select {
       padding: 6px 8px;
@@ -219,7 +293,9 @@
       color-scheme: dark;
     }
     td select option { color: #000; }
-    td input[type="text"] { width: 150px; }
+    td input[type="text"] { width: 112px; }
+    td input[type="date"], td input[type="time"] { padding: 5px 6px; font-size: 0.85rem; }
+    td .btn { padding: 8px 12px; }
     .row-status { font-size: 0.8rem; color: #86efac; }
     .row-status.err { color: #fca5a5; }
 
@@ -292,18 +368,46 @@
 
   <dialog id="adminDialog" class="wide">
     <h2>Admin-Menü</h2>
-    <p class="hint" id="adminInfo"></p>
-    <p class="error" id="adminError" role="alert"></p>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th><th>E-Mail</th><th>Registrierungsdatum</th><th>Uhrzeit</th>
-            <th>IP-Adresse</th><th>Rang</th><th></th>
-          </tr>
-        </thead>
-        <tbody id="adminRows"></tbody>
-      </table>
+    <div class="tabs" id="adminTabs" role="tablist">
+      <button type="button" class="tab on" role="tab" data-tab="members">Mitglieder</button>
+      <button type="button" class="tab" role="tab" data-tab="log">Protokoll</button>
+    </div>
+    <div class="tabpanel" data-panel="members" role="tabpanel">
+      <p class="hint" id="adminInfo"></p>
+      <p class="error" id="adminError" role="alert"></p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th><th>E-Mail</th><th>Registrierungsdatum</th><th>Uhrzeit</th>
+              <th>IP-Adresse</th><th>Betriebssystem</th><th>Rang</th><th>Online</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="adminRows"></tbody>
+        </table>
+      </div>
+      <div class="pager" id="adminPager" hidden>
+        <button type="button" class="btn" id="pagerPrev">‹ Zurück</button>
+        <span id="pagerInfo"></span>
+        <button type="button" class="btn" id="pagerNext">Weiter ›</button>
+      </div>
+    </div>
+    <div class="tabpanel" data-panel="log" role="tabpanel" hidden>
+      <p class="hint" id="logInfo"></p>
+      <p class="error" id="logError" role="alert"></p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Zeit</th><th>Ereignis</th><th>Mitglied</th><th>IP-Adresse</th><th>Betriebssystem</th><th>Browser</th></tr>
+          </thead>
+          <tbody id="logRows"></tbody>
+        </table>
+      </div>
+      <div class="pager" id="logPager" hidden>
+        <button type="button" class="btn" id="logPrev">‹ Zurück</button>
+        <span id="logPagerInfo"></span>
+        <button type="button" class="btn" id="logNext">Weiter ›</button>
+      </div>
     </div>
     <div class="actions" style="margin-top:16px">
       <button type="button" class="btn" data-close>Schließen</button>
@@ -327,11 +431,11 @@
     <div class="cards">
       <button type="button" class="card" data-who="jason">
         <div class="ava"><svg viewBox="0 0 100 140"><circle cx="50" cy="26" r="15" fill="#e4b896"/><path d="M33 22c2-14 32-14 34 0-8-5-26-5-34 0z" fill="#241710"/><path d="M20 140V70c0-14 12-22 30-22s30 8 30 22v70z" fill="#1b1b20"/><rect x="38" y="86" width="24" height="54" fill="#3b4a6b"/></svg></div>
-        <b>Jason</b><span>Ehemaliger Automechaniker mit ruhiger Hand am Steuer. Schnell im Kopf, schneller auf der Straße.</span>
+        <b>Mann</b><span>Ehemaliger Automechaniker mit ruhiger Hand am Steuer. Schnell im Kopf, schneller auf der Straße.</span>
       </button>
       <button type="button" class="card" data-who="lucia">
         <div class="ava"><svg viewBox="0 0 100 140"><path d="M30 30c0-26 40-26 40 0 0 22 6 44 6 44H24s6-22 6-44z" fill="#150c09"/><circle cx="50" cy="28" r="14" fill="#d3a07a"/><path d="M20 140V72c0-14 12-22 30-22s30 8 30 22v68z" fill="#d93d63"/><rect x="38" y="90" width="24" height="50" fill="#1d1f26"/></svg></div>
-        <b>Lucia</b><span>Kühl, gewitzt und unberechenbar. Sie plant jeden Coup – und improvisiert, wenn alles schiefgeht.</span>
+        <b>Frau</b><span>Kühl, gewitzt und unberechenbar. Sie plant jeden Coup – und improvisiert, wenn alles schiefgeht.</span>
       </button>
     </div>
     <button type="button" id="charBack" style="margin-top:26px;padding:10px 22px;font:inherit;color:#fff;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.3);border-radius:10px;cursor:pointer">Zurück</button>
@@ -422,25 +526,134 @@
     const toDateValue = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     const toTimeValue = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 
+    // Tabellen im Admin-Menü werden seitenweise angezeigt, damit nichts gescrollt werden muss: Die Zeilenzahl pro Seite wird
+    // so gewählt, dass das ganze Fenster in die Bildschirmhöhe passt (gemessen, nicht geschätzt).
+    function makePaged({ rows, pager, info, prev, next, items, row }) {
+      let page = 0;
+      let per = 8;
+      const dlg = $('adminDialog');
+      const fit = () => {
+        const list = items(), n = list.length;
+        let p = Math.min(14, Math.max(1, n));
+        for (; p > 1; p--) {
+          $(pager).hidden = p >= n;
+          $(rows).replaceChildren(...list.slice(0, p).map(row));
+          if (dlg.scrollHeight <= dlg.clientHeight + 1) break;
+        }
+        per = p;
+      };
+      const render = (refit = true) => {
+        if (refit) fit();
+        const list = items(), pages = Math.max(1, Math.ceil(list.length / per));
+        page = Math.min(page, pages - 1);
+        $(rows).replaceChildren(...list.slice(page * per, page * per + per).map(row));
+        $(pager).hidden = pages <= 1;
+        $(info).textContent = 'Seite ' + (page + 1) + ' von ' + pages;
+        $(prev).disabled = page === 0;
+        $(next).disabled = page >= pages - 1;
+      };
+      $(prev).onclick = () => { page = Math.max(0, page - 1); render(false); };
+      $(next).onclick = () => { page += 1; render(false); };
+      return { render, reset() { page = 0; $(rows).replaceChildren(); $(pager).hidden = true; } };
+    }
+
+    let adminData = null;
+    let logData = [];
+    let adminTab = 'members';
+    const members = makePaged({
+      rows: 'adminRows', pager: 'adminPager', info: 'pagerInfo', prev: 'pagerPrev', next: 'pagerNext',
+      items: () => (adminData ? adminData.users : []),
+      row: (u) => adminRow(u, adminData.canEdit, adminData.ranks),
+    });
+    const LOG_EVENTS = { register: ['Registrierung', 'ev-register'], login: ['Login', 'ev-login'], loginFailed: ['Login fehlgeschlagen', 'ev-failed'] };
+    const logPaged = makePaged({
+      rows: 'logRows', pager: 'logPager', info: 'logPagerInfo', prev: 'logPrev', next: 'logNext',
+      items: () => logData,
+      row: (e) => {
+        const ev = LOG_EVENTS[e.event] || [e.event, ''];
+        const tr = el('tr');
+        tr.append(
+          el('td', { textContent: new Date(e.time).toLocaleString('de-DE') }),
+          el('td', { className: ev[1], textContent: ev[0] }),
+          el('td', { textContent: e.name }),
+          el('td', { textContent: e.ip }),
+          el('td', { textContent: e.os || '–' }),
+          el('td', { textContent: e.browser || '–' })
+        );
+        return tr;
+      },
+    });
+    const renderActive = () => (adminTab === 'log' ? logPaged : members).render();
+    async function loadLog() {
+      $('logError').textContent = '';
+      try {
+        const { entries } = await api('/api/admin/log');
+        logData = entries;
+        $('logInfo').textContent = entries.length + (entries.length === 1 ? ' Eintrag' : ' Einträge') + ' (neueste zuerst): Registrierungen und Logins mit IP-Adresse und Betriebssystem. Zeiten in deiner lokalen Zeitzone.';
+        logPaged.render();
+      } catch (ex) {
+        $('logError').textContent = ex.message;
+      }
+    }
+    function selectAdminTab(id) {
+      adminTab = id;
+      document.querySelectorAll('#adminTabs [data-tab]').forEach((t) => t.classList.toggle('on', t.dataset.tab === id));
+      document.querySelectorAll('#adminDialog .tabpanel').forEach((p) => { p.hidden = p.dataset.panel !== id; });
+      if (id === 'log') loadLog(); else members.render();
+    }
+    // Online-Status alle 15 s auffrischen (nur die Anzeige, damit nichts verloren geht, was gerade bearbeitet wird)
+    async function refreshOnline() {
+      if (!$('adminDialog').open || adminTab !== 'members' || !adminData) return;
+      try {
+        const { users } = await api('/api/admin/users');
+        const byId = new Map(users.map((u) => [u.id, u]));
+        for (const u of adminData.users) { const n = byId.get(u.id); if (n) u.online = n.online; }
+        document.querySelectorAll('#adminRows tr[data-uid]').forEach((tr) => {
+          const n = byId.get(Number(tr.dataset.uid));
+          const cell = tr.querySelector('.online-cell');
+          if (n && cell) cell.replaceChildren(onlineBadge(n.online));
+        });
+      } catch { /* beim nächsten Mal wieder */ }
+    }
+    setInterval(refreshOnline, 15000);
+    window.addEventListener('resize', () => { if ($('adminDialog').open) renderActive(); });
+    $('adminDialog').addEventListener('close', () => { document.documentElement.style.overflow = ''; });
+    document.querySelectorAll('#adminTabs [data-tab]').forEach((tab) => tab.addEventListener('click', () => selectAdminTab(tab.dataset.tab)));
+
     async function openAdmin() {
       const err = $('adminError');
       err.textContent = '';
-      $('adminRows').replaceChildren();
+      adminData = null;
+      logData = [];
+      members.reset();
+      logPaged.reset();
+      adminTab = 'members';
+      document.querySelectorAll('#adminTabs [data-tab]').forEach((t) => t.classList.toggle('on', t.dataset.tab === 'members'));
+      document.querySelectorAll('#adminDialog .tabpanel').forEach((p) => { p.hidden = p.dataset.panel !== 'members'; });
+      document.documentElement.style.overflow = 'hidden';
       $('adminDialog').showModal();
       try {
         const { users, canEdit, ranks } = await api('/api/admin/users');
-        $('adminInfo').textContent = canEdit
+        $('adminInfo').textContent = users.length + (users.length === 1 ? ' Mitglied. ' : ' Mitglieder. ') + (canEdit
           ? 'Als Sysadmin kannst du Registrierungsdatum, Uhrzeit, IP-Adresse und Rang ändern. Zeiten in deiner lokalen Zeitzone.'
-          : 'Du darfst die Accounts einsehen. Ändern dürfen nur Sysadmins.';
-        $('adminRows').append(...users.map((u) => adminRow(u, canEdit, ranks)));
+          : 'Du darfst die Accounts einsehen. Ändern dürfen nur Sysadmins.');
+        adminData = { users, canEdit, ranks };
+        members.render();
       } catch (ex) {
         err.textContent = ex.message;
       }
     }
 
+    // Betriebssystem (und Browser), mit dem sich das Mitglied registriert hat
+    // Online-Anzeige: grün „online“ (Mitglied ist im Spiel), rot „offline“
+    const onlineBadge = (on) => el('span', { className: on ? 'st-on' : 'st-off', textContent: on ? 'online' : 'offline' });
+    const onlineCell = (u) => { const td = el('td', { className: 'online-cell' }); td.append(onlineBadge(u.online)); return td; };
+    const osText = (u) => (u.os ? u.os + (u.browser ? ' · ' + u.browser : '') : '–');
+
     function adminRow(u, canEdit, ranks) {
       const d = new Date(u.registeredAt);
       const tr = el('tr');
+      tr.dataset.uid = u.id;
       const status = el('span', { className: 'row-status' });
 
       if (!canEdit) {
@@ -450,7 +663,9 @@
           el('td', { textContent: d.toLocaleDateString('de-DE') }),
           el('td', { textContent: d.toLocaleTimeString('de-DE') }),
           el('td', { textContent: u.ip }),
+          el('td', { textContent: osText(u) }),
           el('td', {}, el('span', { className: 'rank ' + u.rank, textContent: u.rank })),
+          onlineCell(u),
           el('td')
         );
         return tr;
@@ -492,7 +707,7 @@
       tr.append(
         el('td', { textContent: u.name }),
         el('td', { textContent: u.email }),
-        el('td', {}, date), el('td', {}, time), el('td', {}, ip), el('td', {}, rank),
+        el('td', {}, date), el('td', {}, time), el('td', {}, ip), el('td', { textContent: osText(u) }), el('td', {}, rank), onlineCell(u),
         el('td', {}, save, ' ', status)
       );
       return tr;
@@ -516,9 +731,20 @@
     const BTN = 'padding:12px 18px;font:inherit;font-weight:700;color:#fff;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.3);border-radius:10px;cursor:pointer';
     let toastT = 0;
     function toast(msg, ms = 3400) { const t = qs('#toast'); t.textContent = msg; clearTimeout(toastT); toastT = setTimeout(() => (t.textContent = ''), ms); }
-    function modal(html, bind) { const m = qs('#modal'); m.querySelector('.mbox').innerHTML = html; m.hidden = false; bind && bind(m.querySelector('.mbox')); }
+    function modal(html, bind) { const m = qs('#modal'); const box = m.querySelector('.mbox'); box.className = 'mbox'; box.innerHTML = html; m.hidden = false; bind && bind(box); }
     function closeModal() { qs('#modal').hidden = true; }
     let gameInst = null;
+
+    // Anwesenheit: Solange das Spiel läuft, meldet sich die Seite alle 30 s beim Server (Admin-Menü zeigt „online“)
+    let presenceTimer = null;
+    const presenceSend = (state) => fetch('/api/presence', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state }), keepalive: true }).catch(() => {});
+    function startPresence() { stopPresence(); presenceSend('ping'); presenceTimer = setInterval(() => presenceSend('ping'), 30000); }
+    function stopPresence(leave = false) {
+      if (presenceTimer) clearInterval(presenceTimer);
+      presenceTimer = null;
+      if (leave) { try { navigator.sendBeacon('/api/presence', new Blob([JSON.stringify({ state: 'leave' })], { type: 'application/json' })); } catch { /* ignorieren */ } }
+    }
+    window.addEventListener('pagehide', () => { if (presenceTimer) stopPresence(true); });
 
     function requireLogin() {
       if (me) return true;
@@ -527,15 +753,40 @@
       return false;
     }
 
-    async function fetchSave() {
-      try { const r = await api('/api/save'); return r.save ? r : null; } catch { return null; }
+    // slot weglassen: neuester Speicherstand; sonst Platz 0 (Auto-Save) oder 1–10
+    async function fetchSave(slot) {
+      try { const r = await api('/api/save' + (slot === undefined ? '' : '?slot=' + slot)); return r.save ? r : null; } catch { return null; }
     }
+    const SAVE_WHO = { jason: 'Mann', lucia: 'Frau' };
+    const slotInfo = (s) => (SAVE_WHO[s.summary.who] || 'Mann') + ' · ' + Number(s.summary.money || 0).toLocaleString('de-DE') + ' € · ' + (s.summary.missions || 0) + ((s.summary.missions || 0) === 1 ? ' Mission' : ' Missionen') + ' · ' + new Date(s.savedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 
     function chooseCharacter() { qs('#charSelect').hidden = false; }
     document.querySelectorAll('#charSelect .card').forEach((c) => c.addEventListener('click', () => { qs('#charSelect').hidden = true; launch({ who: c.dataset.who }); }));
     qs('#charBack').addEventListener('click', () => { qs('#charSelect').hidden = true; });
 
+    // ---------- Lobbymusik (selbst erzeugt, urheberrechtsfrei: assets/lobbymusic.js) ----------
+    let lobby = null;
+    async function startLobby() {
+      try {
+        const m = await import('/assets/lobbymusic.js');
+        lobby = m.createLobbyMusic();
+        if (!lobby) return;
+        // Lautstärke = Gesamtlautstärke × Lobbymusik (Optionen → Audio)
+        window.__lobbyApply = () => { const st = loadSettings(); lobby.setVolume((st.master ?? 0.8) * (st.lobby ?? 0.5)); };
+        window.__lobbyApply();
+        lobby.start();
+        const evs = ['pointerdown', 'keydown', 'touchstart'];
+        const unlock = () => {
+          if (!lobby) return;
+          lobby.start();
+          if (lobby.ctx.state === 'running') evs.forEach((e) => window.removeEventListener(e, unlock, true));
+        };
+        evs.forEach((e) => window.addEventListener(e, unlock, true));
+      } catch (e) { console.warn('Lobbymusik nicht verfügbar:', e); }
+    }
+
     async function launch({ who, save = null }) {
+      if (lobby) lobby.stop(1.2);
       const load = qs('#loading');
       const setProg = (p, m) => { load.querySelector('.bar i').style.width = Math.round(p * 100) + '%'; if (m) load.querySelector('.msg').textContent = m; };
       load.hidden = false; setProg(0.02, 'Starte …');
@@ -555,6 +806,7 @@
           onExit: () => exitGame(),
         };
         gameInst = await mod.startGame(root, opts);
+        startPresence();
         setProg(1, 'Los geht’s!');
         setTimeout(() => { load.hidden = true; }, 350);
         gameInst.input.lock();
@@ -564,10 +816,12 @@
         document.body.classList.remove('playing');
         load.hidden = true;
         toast('Das Spiel konnte nicht gestartet werden: ' + e.message, 7000);
+        if (lobby) lobby.start();
       } finally { clearInterval(tipTimer); }
     }
 
     function exitGame() {
+      stopPresence(true);
       try { gameInst && gameInst.stop(); gameInst && gameInst.dispose(); } catch (e) { console.warn(e); }
       gameInst = null;
       const root = qs('#gameRoot');
@@ -577,24 +831,72 @@
       setTimeout(() => location.reload(), 80);
     }
 
+    const START_ICONS = {
+      play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.8v14.4c0 .9 1 1.4 1.7.9l10.6-7.2c.7-.4.7-1.4 0-1.8L8.7 3.9C8 3.4 7 3.9 7 4.8z"/></svg>',
+      folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+      plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+    };
+    const playTime = (ms) => { const min = Math.floor(ms / 60000); return min < 60 ? min + ' Min.' : Math.floor(min / 60) + ' Std. ' + (min % 60) + ' Min.'; };
+
     async function startFlow() {
       if (!requireLogin()) return;
       const sv = await fetchSave();
       if (!sv) { chooseCharacter(); return; }
-      const when = new Date(sv.savedAt).toLocaleString('de-DE');
-      modal('<h2>Spiel starten</h2><p>Es gibt einen Speicherstand vom <b>' + when + '</b> (' + (sv.save.who === 'lucia' ? 'Lucia' : 'Jason') + ', ' + Math.floor(sv.save.money || 0).toLocaleString('de-DE') + ' €).</p><div class="btns"><button id="m-cont">Fortsetzen</button><button id="m-new">Neues Spiel</button><button id="m-x">Abbrechen</button></div>', (b) => {
-        for (const id of ['m-cont', 'm-new', 'm-x']) b.querySelector('#' + id).style.cssText = BTN;
+      const saved = new Date(sv.savedAt);
+      const when = saved.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }) + ' · ' + saved.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr';
+      const who = sv.save.who === 'lucia' ? 'lucia' : 'jason';
+      const st = sv.save.stats || {};
+      const stat = (label, value, cls = '') => '<div class="' + cls + '"><dt>' + label + '</dt><dd>' + value + '</dd></div>';
+      const stats = stat('Geld', Math.floor(Number(sv.save.money) || 0).toLocaleString('de-DE') + ' €', 'money')
+        + stat('Missionen', Number(st.missionsDone) || 0)
+        + (Number(st.playMs) > 0 ? stat('Spielzeit', playTime(Number(st.playMs))) : '');
+      modal('<h2>Spiel starten</h2><p class="lead">Mach weiter, wo du aufgehört hast.</p>'
+        + '<div class="save-card"><div class="save-head"><div class="save-ava"></div><div class="save-who"><small>Neuester Speicherstand</small><b>' + SAVE_WHO[who] + '</b><span>' + when + '</span></div></div><dl class="save-stats">' + stats + '</dl></div>'
+        + '<div class="start-actions"><button type="button" id="m-cont" class="go">' + START_ICONS.play + 'Fortsetzen</button><button type="button" id="m-pick">' + START_ICONS.folder + 'Speicherstand wählen</button><button type="button" id="m-new">' + START_ICONS.plus + 'Neues Spiel</button><button type="button" id="m-x" class="quiet">Abbrechen</button></div>', (b) => {
+        b.classList.add('start');
+        // Porträt aus der Figurenauswahl übernehmen, auf Kopf und Schultern zugeschnitten
+        const face = qs('#charSelect .card[data-who="' + who + '"] svg').cloneNode(true);
+        face.setAttribute('viewBox', '16 4 68 68');
+        b.querySelector('.save-ava').append(face);
+        b.querySelector('#m-pick').onclick = () => { closeModal(); loadFlow(); };
         b.querySelector('#m-cont').onclick = () => { closeModal(); launch({ save: sv }); };
         b.querySelector('#m-new').onclick = () => { closeModal(); chooseCharacter(); };
         b.querySelector('#m-x').onclick = closeModal;
       });
     }
 
+    // Speicherstand laden: ganz oben der Auto-Save, darunter die eigenen Speicherstände 1–10 (leere Plätze sind gesperrt)
     async function loadFlow() {
       if (!requireLogin()) return;
-      const sv = await fetchSave();
-      if (!sv) { toast('Für diesen Account gibt es noch keinen Speicherstand.'); return; }
-      launch({ save: sv });
+      let slots = [];
+      try { slots = (await api('/api/saves')).slots; if (!Array.isArray(slots)) throw new Error('alt'); } catch {
+        // Ältere Server-Version ohne Speicherplätze: den einen vorhandenen Stand laden
+        const old = await fetchSave();
+        if (old) { launch({ save: old }); return; }
+        toast('Für diesen Account gibt es noch keinen Speicherstand.');
+        return;
+      }
+      if (!slots.length) { toast('Für diesen Account gibt es noch keinen Speicherstand.'); return; }
+      const by = new Map(slots.map((s) => [s.slot, s]));
+      modal('<h2>Speicherstand laden</h2><div id="sl-list" style="display:grid;gap:8px"></div><div class="btns"><button id="m-x">Abbrechen</button></div>', (b) => {
+        const list = b.querySelector('#sl-list');
+        for (let n = 0; n <= 10; n++) {
+          const s = by.get(n);
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.style.cssText = BTN + ';text-align:left;width:100%' + (s ? '' : ';opacity:.45;cursor:default');
+          const title = document.createElement('div');
+          title.textContent = n === 0 ? 'Auto-Save (automatisch)' : 'Speicherstand ' + n;
+          const sub = document.createElement('div');
+          sub.style.cssText = 'font-weight:400;font-size:13px;opacity:.75;margin-top:2px';
+          sub.textContent = s ? slotInfo(s) : (n === 0 ? 'Noch nichts automatisch gespeichert' : 'Leer');
+          btn.append(title, sub);
+          if (s) btn.onclick = async () => { const sv = await fetchSave(n); if (!sv) { toast('Der Speicherstand konnte nicht geladen werden.'); return; } closeModal(); launch({ save: sv }); };
+          else btn.disabled = true;
+          list.append(btn);
+        }
+        const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = closeModal;
+      });
     }
 
     async function friendsFlow() {
@@ -606,20 +908,15 @@
       modal('<h2>Freundschaften</h2>' + (rows || '<p>Du hast noch niemanden kennengelernt. Spiele die Missionen, um Kontakte zu knüpfen – sie werden hier und im Pause-Menü des Spiels angezeigt.</p>') + '<div class="btns"><button id="m-x">Schließen</button></div>', (b) => { const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = closeModal; });
     }
 
-    function optionsFlow() {
-      const s = loadSettings();
-      const opt = ['low:Niedrig', 'medium:Mittel', 'high:Hoch', 'ultra:Ultra'].map((p) => { const [k, l] = p.split(':'); return '<option value="' + k + '"' + (s.quality === k ? ' selected' : '') + '>' + l + '</option>'; }).join('');
-      modal('<h2>Optionen</h2>' +
-        '<div class="row"><label>Grafikqualität</label><select id="o-q">' + opt + '</select></div>' +
-        '<div class="row"><label>Gesamtlautstärke</label><input id="o-m" type="range" min="0" max="1" step="0.05" value="' + s.master + '"></div>' +
-        '<div class="row"><label>Musik / Radio</label><input id="o-mu" type="range" min="0" max="1" step="0.05" value="' + s.music + '"></div>' +
-        '<div class="row"><label>Effekte</label><input id="o-s" type="range" min="0" max="1" step="0.05" value="' + s.sfx + '"></div>' +
-        '<div class="row"><label>Maus-Empfindlichkeit</label><input id="o-se" type="range" min="0.2" max="2.5" step="0.05" value="' + s.sens + '"></div>' +
-        '<div class="row"><label>Y-Achse umkehren</label><input id="o-iy" type="checkbox"' + (s.invertY ? ' checked' : '') + '></div>' +
-        '<div class="btns"><button id="m-x">Fertig</button></div>', (b) => {
-        const upd = () => { s.quality = b.querySelector('#o-q').value; s.master = +b.querySelector('#o-m').value; s.music = +b.querySelector('#o-mu').value; s.sfx = +b.querySelector('#o-s').value; s.sens = +b.querySelector('#o-se').value; s.invertY = b.querySelector('#o-iy').checked; saveSettings(s); };
-        b.querySelectorAll('input,select').forEach((e) => e.addEventListener('input', upd));
-        const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = closeModal;
+    // Optionen mit den Reitern Audio, Grafik und Tastatur (gemeinsam mit dem Pause-Menü im Spiel: /assets/options.js)
+    async function optionsFlow() {
+      let mod;
+      try { mod = await import('/assets/options.js'); } catch (e) { toast('Die Optionen konnten nicht geladen werden.'); return; }
+      const s = mod.loadSettings();
+      modal('<h2>Optionen</h2><div id="opt-host"></div><div class="btns"><button id="m-x">Fertig</button></div>', (b) => {
+        b.classList.add('wide');
+        const ctl = mod.renderOptions(b.querySelector('#opt-host'), { settings: s, onChange: () => { mod.saveSettings(s); if (window.__lobbyApply) window.__lobbyApply(); } });
+        const x = b.querySelector('#m-x'); x.style.cssText = BTN; x.onclick = () => { ctl.dispose(); closeModal(); };
       });
     }
 
@@ -641,7 +938,7 @@
         case 'start': startFlow(); break;
         case 'multi': toast("Mallorca's: Street Life ist ein Einzelspieler-Spiel (1 Spieler). Multiplayer ist nicht verfügbar."); break;
         case 'load': loadFlow(); break;
-        case 'save': toast('Gespeichert wird im Spiel: über das Pause-Menü (Esc) oder in deiner Wohnung. Nach jeder Mission wird automatisch gespeichert.', 5200); break;
+        case 'save': toast('Gespeichert wird im Spiel: über das Pause-Menü (Esc) oder in deiner Wohnung. Nach jeder Mission wird automatisch gespeichert (abschaltbar unter Optionen → Speichern).', 5200); break;
         case 'friends': friendsFlow(); break;
         case 'options': optionsFlow(); break;
         case 'quit': quitFlow(); break;
@@ -652,6 +949,7 @@
     const _renderBar = renderBar;
     renderBar = function () { _renderBar(); lockButtons(); };
     renderBar();
+    startLobby();
     api('/api/me').then((d) => { me = d.user; renderBar(); }).catch(() => {});
   </script>
 </body>

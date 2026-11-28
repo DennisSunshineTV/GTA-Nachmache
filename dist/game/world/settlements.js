@@ -809,24 +809,24 @@ function genAirport(ctx, s) {
   const A = [cx - ux * L / 2, cz - uz * L / 2], B = [cx + ux * L / 2, cz + uz * L / 2];
   const na = net.addNode(A[0], A[1], 2), nb = net.addNode(B[0], B[1], 2);
   net.addRoad('runway', [A, B], na, nb, { flat: true, name: 'Pista 06/24', noTraffic: true });
-  landuse.fillRect(cx, cz, L + 80, 120, -th, LU.AIRPORT);
-  landuse.fillRect(cx + vx * 190, cz + vz * 190, L * 0.8, 240, -th, LU.AIRPORT);
-  landuse.fillRect(cx, cz, L, 52, -th, LU.RUNWAY);
-  // Rollweg + Vorfeld
-  const off = 105;
-  const tA = [A[0] + vx * off + ux * 120, A[1] + vz * off + uz * 120], tB = [B[0] + vx * off - ux * 120, B[1] + vz * off - uz * 120];
-  const ta = net.addNode(tA[0], tA[1], 2), tb = net.addNode(tB[0], tB[1], 2);
-  net.addRoad('taxiway', [tA, tB], ta, tb, { flat: true, name: 'Rollweg', noTraffic: true });
-  // Verbindungen Runway <-> Taxiway
-  for (const f of [0.18, 0.5, 0.82]) {
-    const p = [A[0] + (B[0] - A[0]) * f, A[1] + (B[1] - A[1]) * f];
-    const n1 = net.addNode(p[0], p[1], 2);
-    // Knoten auf der Piste erzeugt zusätzliche Teilung nicht nötig: Rollverbindung endet an der Pistenkante
-    const q = [p[0] + vx * 28, p[1] + vz * 28], r = [p[0] + vx * off, p[1] + vz * off];
-    void n1;
-    const nq = net.addNode(q[0], q[1], 2), nr = net.addNode(r[0], r[1], 2);
-    net.addRoad('taxiway', [q, r], nq, nr, { flat: true, noTraffic: true });
+  // fillRect dreht die Breitenachse auf (cos, sin) – hier also auf die Pistenrichtung (ux, uz)
+  landuse.fillRect(cx, cz, L + 80, 130, th, LU.AIRPORT);
+  landuse.fillRect(cx + vx * 190, cz + vz * 190, L * 0.8, 240, th, LU.AIRPORT);
+  landuse.fillRect(cx, cz, L, 52, th, LU.RUNWAY);
+  // Rollweg + Vorfeld: ein geschlossener Bogen von der Pistenkante zum Vorfeld und zurück, dazu eine Verbindung in der Mitte
+  const off = 105, edge = 22.5, R = 34;                 // edge: knapp an der Pistenkante (halbe Pistenbreite 23)
+  const at = (f, v) => [A[0] + (B[0] - A[0]) * f + vx * v, A[1] + (B[1] - A[1]) * f + vz * v];
+  const bow = [at(0.18, edge)];
+  for (const [f, dir] of [[0.18, 1], [0.82, -1]]) {
+    const corner = at(f, off), down = at(f, off - R), side = [corner[0] + ux * R * dir, corner[1] + uz * R * dir];
+    const [p0, p2] = dir > 0 ? [down, side] : [side, down];
+    for (let k = 0; k <= 6; k++) { const t = k / 6, s = 1 - t; bow.push([s * s * p0[0] + 2 * s * t * corner[0] + t * t * p2[0], s * s * p0[1] + 2 * s * t * corner[1] + t * t * p2[1]]); }
   }
+  bow.push(at(0.82, edge));
+  const ends = (pts) => [net.addNode(...pts[0], 2), net.addNode(...pts[pts.length - 1], 2)];
+  net.addRoad('taxiway', bow, ...ends(bow), { flat: true, name: 'Rollweg', noTraffic: true });
+  const mid = [at(0.5, edge), at(0.5, off)];
+  net.addRoad('taxiway', mid, ...ends(mid), { flat: true, noTraffic: true });
   // Terminal
   const tx = cx + vx * 215, tz = cz + vz * 215;
   const term = { id: ctx.buildings.length, x: tx, z: tz, w: 190, d: 38, rot: Math.atan2(-uz, ux), style: 'terminal', floors: 3, h: 16, roof: 'flat', tint: [0.9, 0.93, 0.96], seed: 5, name: 'Terminal', signIdx: ctx.signs.add('AEROPUERTO DE PALMA', 'harbor') };
@@ -840,7 +840,11 @@ function genAirport(ctx, s) {
   const road = [cx + vx * 285, cz + vz * 285];
   const nRoad = net.addNode(road[0], road[1], 3), nTerm = net.addNode(tx + vx * 30, tz + vz * 30, 3);
   net.addRoad('main', [[tx + vx * 30, tz + vz * 30], [road[0], road[1]]], nTerm, nRoad, { urban: true, flat: true, name: 'Autovia Aeroport' });
+  // Vorfahrt am Terminal: Schleife zurück zur Zufahrt, damit die Straße nicht vor dem Gebäude endet
+  const loop = [[0, 245], [-34, 245], [-52, 249], [-60, 265], [-52, 281], [-34, 285], [0, 285]].map(([u, v]) => [cx + ux * u + vx * v, cz + uz * u + vz * v]);
+  net.addRoad('main', loop, nTerm, nRoad, { urban: true, flat: true, name: 'Vorfahrt Terminal' });
   s.gates = [nRoad];
+  s.approach = [cx + vx * 450, cz + vz * 450];   // Verbindungsstraßen kommen von der Landseite (nicht über Piste und Terminal)
   // Parkende Flugzeuge auf dem Vorfeld und Startpunkte
   ctx.pois.push({ id: 'airport.runway', type: 'runway', x: cx - ux * L * 0.4, z: cz - uz * L * 0.4, rot: Math.atan2(uz, ux), label: 'Flughafen' });
   ctx.pois.push({ id: 'airport.apron', type: 'airport', x: cx + vx * 140, z: cz + vz * 140, label: 'Flughafen Palma' });

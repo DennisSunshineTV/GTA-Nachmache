@@ -56,7 +56,7 @@ export class PedManager {
         const s = r.cum[nr.i] + (r.cum[nr.i + 1] - r.cum[nr.i]) * nr.t;
         const off = (r.w / 2 + Math.max(r.sw, 2) * 0.5) * side;
         const t = laneTarget(net, r, true, s, off, {});
-        if (g.physics.groundHeight(t.px, t.pz) < 0.1) continue;
+        if (g.physics.groundHeight(t.px, t.pz) < 0.1 || g.physics.poolAt(t.px, t.pz)) continue;
         if (Math.hypot(t.px - px, t.pz - pz) < rMin * 0.8) continue;
         const p = this._make(outfit, t.px, t.pz, { mode: outfit === 'vendor' ? 'idle' : nearClub && night && Math.random() < 0.45 ? 'dance' : 'walk' }, { road: r, fwd: Math.random() < 0.5, s, side, off });
         return p;
@@ -72,17 +72,44 @@ export class PedManager {
     const gy = g.physics.groundHeight(x, z);
     if (ai.mode !== 'swim' && gy < 0.1) return null;
     if (ai.mode === 'swim' && gy > -0.5) return null;
+    const lieH = ai.mode === 'lie' ? this._lieHeading(x, z) : null;
+    if (ai.mode === 'lie' && lieH === null) return null;   // kein freier Liegeplatz
     const female = Math.random() < 0.46;
     const ch = new Character(g, 'ped', x, z, { outfit, heading: Math.random() * 6.28, hp: 60 + Math.random() * 40 });
     ch.name = (female ? NAMES_F : NAMES_M)[Math.floor(Math.random() * 10)];
     ch.armed = Math.random() < 0.04;
     ch.ai = { mode: ai.mode, t: 5 + Math.random() * 20, route, tx: x, tz: z, outfit, fear: 0, moodT: 6 + Math.random() * 20, bumpT: 0 };
-    if (ai.mode === 'lie') { ch.anim.lie = true; ch.h = Math.random() * 6.28; }
+    if (ai.mode === 'lie') { ch.anim.lie = true; ch.h = lieH; }
     if (ai.mode === 'dance') ch.anim.dance = true;
     if (ai.mode === 'swim') ch.ai.tx = x, ch.ai.tz = z;
     g.addCharacter(ch);
     this.list.push(ch);
     return ch;
+  }
+
+  // Liegeplatz zum Sonnenbaden: Der ganze Körper (Füße am Ursprung, Kopf knapp 2 m hinter der Blickrichtung) muss auf
+  // freiem, ebenem Sand liegen – nie halb auf Holzterrasse, Steg, Straße, Mauer oder im Wasser. Liefert die Richtung oder null.
+  _lieHeading(x, z) {
+    const y0 = this.game.physics.groundHeight(x, z);
+    const start = Math.random() * 6.28;
+    for (let k = 0; k < 8; k++) {
+      const h = start + (k / 8) * 6.28, fx = Math.sin(h), fz = Math.cos(h);
+      let free = true;
+      for (let i = 0; i <= 6 && free; i++) {
+        const t = -0.4 + i * 0.45;   // entlang des Körpers: knapp vor den Füßen bis hinter den Kopf
+        free = [-0.7, 0, 0.7].every((s) => this._freeSand(x - fx * t + fz * s, z - fz * t - fx * s, y0));
+      }
+      if (free) return h;
+    }
+    return null;
+  }
+
+  _freeSand(x, z, y0) {
+    const g = this.game, phys = g.physics;
+    if (g.ctx.coast.sdAt(x, z) < 1) return false;
+    if (Math.abs(phys.groundHeight(x, z) - y0) > 0.14) return false;
+    if (phys.platformHeight(x, z) > -Infinity || g.ctx.net.covers(x, z, 0.6)) return false;
+    return !phys.pushCircle({ x, z }, 0.25, y0 + 0.05, y0 + 0.5);
   }
 
   // ---------- Update ----------
@@ -164,12 +191,16 @@ export class PedManager {
         const an = Math.random() * 6.28, rr = 6 + Math.random() * 22;
         const tx = c.x + Math.cos(an) * rr, tz = c.z + Math.sin(an) * rr;
         const gh = g.physics.groundHeight(tx, tz);
+        // nicht in einen Pool hinein (auch nicht quer hindurch)
+        if (g.physics.poolAt(tx, tz) || g.physics.poolAt((tx + c.x) / 2, (tz + c.z) / 2)) continue;
         if (gh > 0.3 && gh < c.y + 1.2) { a.tx = tx; a.tz = tz; break; }
       }
       a.t = 6 + Math.random() * 12;
     }
     const dx = a.tx - c.x, dz = a.tz - c.z, l = Math.hypot(dx, dz) || 1;
     I.mx = dx / l; I.mz = dz / l; I.speed = 0.5;
+    // vor einem Pool stehen bleiben und ein neues Ziel suchen
+    if (!c.inPool && g.physics.poolAt(c.x + I.mx * 1.1, c.z + I.mz * 1.1)) { I.mx = I.mz = 0; a.t = 0; a.tx = c.x; a.tz = c.z; }
   }
 
   _swim(c, dt) {
@@ -179,7 +210,7 @@ export class PedManager {
       for (let k = 0; k < 6; k++) {
         const an = Math.random() * 6.28, rr = 5 + Math.random() * 14;
         const tx = c.x + Math.cos(an) * rr, tz = c.z + Math.sin(an) * rr;
-        if (g.physics.groundHeight(tx, tz) < -1.6) { a.tx = tx; a.tz = tz; break; }
+        if (g.physics.groundHeight(tx, tz) < -1.6 && !g.physics.poolAt(tx, tz)) { a.tx = tx; a.tz = tz; break; }
       }
       a.t = 5 + Math.random() * 8;
     }

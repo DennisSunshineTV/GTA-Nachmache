@@ -1,3 +1,5 @@
 # Account-Daten (Passwort-Hashes, E-Mails, IPs) gehören nicht ins Repository
-data/
+/data/
+# Datenbank der PHP-Variante (ALL-INKL) bleibt auf dem Server
+**/api/data/*.sqlite*
 node_modules/

@@ -110,7 +110,7 @@ async function handleApi(req, res, urlPath) {
 
   if (urlPath === '/api/register' && method === 'POST') {
     rateLimit('register', ip, 10, 60 * 60_000);
-    const user = await users.register(await readJson(req), ip);
+    const user = await users.register(await readJson(req), ip, users.clientInfo(req.headers['user-agent']));
     const t = users.createSession(user);
     return sendJson(res, 201, { user: users.publicUser(user) }, {
       'Set-Cookie': sessionCookie(req, t, users.SESSION_MS / 1000),
@@ -119,7 +119,7 @@ async function handleApi(req, res, urlPath) {
 
   if (urlPath === '/api/login' && method === 'POST') {
     rateLimit('login', ip, 10, 15 * 60_000);
-    const user = await users.login(await readJson(req));
+    const user = await users.login(await readJson(req), ip, users.clientInfo(req.headers['user-agent']));
     const t = users.createSession(user);
     return sendJson(res, 200, { user: users.publicUser(user) }, {
       'Set-Cookie': sessionCookie(req, t, users.SESSION_MS / 1000),
@@ -131,25 +131,95 @@ async function handleApi(req, res, urlPath) {
     return sendJson(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(req, '', 0) });
   }
 
-  // Speicherstand (ein Slot pro Account)
+  // Speicherstände: Platz 0 = Auto-Save, 1–10 = eigene. GET /api/saves liefert die Übersicht,
+  // GET /api/save?slot=N einen Stand (ohne slot: den neuesten), PUT /api/save?slot=N speichert (ohne slot: Platz 1)
+  if (urlPath === '/api/saves' && method === 'GET') {
+    if (!me) throw new users.HttpError(401, 'Bitte einloggen.');
+    return sendJson(res, 200, { slots: users.listSaves(me.id) });
+  }
   if (urlPath === '/api/save') {
     if (!me) throw new users.HttpError(401, 'Bitte einloggen.');
+    const q = new URL(req.url, 'http://localhost').searchParams.get('slot');
+    let slot;
+    if (q !== null && q !== '') {
+      if (!/^\d+$/.test(q) || Number(q) > users.SAVE_SLOTS) throw new users.HttpError(400, 'Ungültiger Speicherplatz.');
+      slot = Number(q);
+    }
     if (method === 'GET') {
-      const data = users.getSave(me.id);
+      const data = users.getSave(me.id, slot);
       return sendJson(res, 200, data ? { save: data.save, savedAt: data.savedAt } : { save: null });
     }
     if (method === 'PUT' || method === 'POST') {
       rateLimit('save', ip, 60, 60_000);
+      // Gespeichert wird in Platz 0 (Auto-Save) oder in einen der 5 eigenen Plätze
+      if (slot !== undefined && slot > users.SAVE_SLOTS_WRITE) throw new users.HttpError(400, 'Ungültiger Speicherplatz.');
       const body = await readJson(req, 300_000);
       if (!body.save || typeof body.save !== 'object') throw new users.HttpError(400, 'Kein Speicherstand übergeben.');
-      return sendJson(res, 200, { ok: true, savedAt: users.putSave(me.id, body.save) });
+      const target = slot === undefined ? 1 : slot;
+      return sendJson(res, 200, { ok: true, slot: target, savedAt: users.putSave(me.id, target, body.save) });
     }
+  }
+
+  // ---------- Freundschaften ----------
+  if (urlPath === '/api/members/search' && method === 'GET') {
+    if (!me) throw new users.HttpError(401, 'Bitte einloggen.');
+    rateLimit('search', ip, 120, 60_000);
+    const q = new URL(req.url, 'http://localhost').searchParams.get('q') || '';
+    return sendJson(res, 200, { users: users.searchMembers(me, q) });
+  }
+  if (urlPath === '/api/friends' && method === 'GET') {
+    if (!me) throw new users.HttpError(401, 'Bitte einloggen.');
+    return sendJson(res, 200, users.friendsOverview(me));
+  }
+  const friendActions = {
+    '/api/friends/request': (b) => ({ ok: true, request: users.sendFriendRequest(me, b) }),
+    '/api/friends/respond': (b) => users.respondFriendRequest(me, b),
+    '/api/friends/remove': (b) => users.removeFriend(me, b),
+    '/api/friends/cancel': (b) => users.cancelFriendRequest(me, b),
+    '/api/notifications/read': (b) => users.readNotifications(me, b),
+  };
+  if (friendActions[urlPath] && method === 'POST') {
+    if (!me) throw new users.HttpError(401, 'Bitte einloggen.');
+    rateLimit('friends', ip, 60, 60_000);
+    return sendJson(res, 200, friendActions[urlPath](await readJson(req)));
+  }
+
+  // ---------- Multiplayer: 2 Server mit je höchstens 16 Spielern (nur mit Account) ----------
+  if (urlPath === '/api/mp/servers' && method === 'GET') {
+    return sendJson(res, 200, { servers: users.mpServers() });
+  }
+  if (urlPath === '/api/mp/join' && method === 'POST') {
+    if (!me) throw new users.HttpError(401, 'Bitte einloggen. Der Multiplayer ist nur mit einem registrierten Account möglich.');
+    rateLimit('mpjoin', ip, 30, 60_000);
+    const body = await readJson(req);
+    return sendJson(res, 200, users.mpJoin(me, body.server));
+  }
+  if (urlPath === '/api/mp/sync' && method === 'POST') {
+    return sendJson(res, 200, users.mpSync(await readJson(req, 4000)));
+  }
+  if (urlPath === '/api/mp/leave' && method === 'POST') {
+    return sendJson(res, 200, users.mpLeave(await readJson(req)));
   }
 
   // Admin-Bereich: Sysadmin und Admin dürfen ansehen, nur Sysadmin darf ändern.
   if (urlPath === '/api/admin/users' && method === 'GET') {
     if (!me || !['Sysadmin', 'Admin'].includes(me.rank)) throw new users.HttpError(403, 'Kein Zugriff.');
     return sendJson(res, 200, { users: users.listUsers(), canEdit: me.rank === 'Sysadmin', ranks: users.RANKS });
+  }
+
+  // Anwesenheit: das laufende Spiel meldet sich regelmäßig (state: 'ping') und beim Verlassen (state: 'leave')
+  if (urlPath === '/api/presence' && method === 'POST') {
+    if (!me) throw new users.HttpError(401, 'Bitte einloggen.');
+    rateLimit('presence', ip, 240, 60_000);
+    const body = await readJson(req);
+    users.setPresence(me.id, body.state === 'leave');
+    return sendJson(res, 200, { ok: true });
+  }
+
+  // Protokoll: Registrierungen und Logins
+  if (urlPath === '/api/admin/log' && method === 'GET') {
+    if (!me || !['Sysadmin', 'Admin'].includes(me.rank)) throw new users.HttpError(403, 'Kein Zugriff.');
+    return sendJson(res, 200, { entries: users.listLog(500) });
   }
 
   const m = /^\/api\/admin\/users\/(\d+)$/.exec(urlPath);

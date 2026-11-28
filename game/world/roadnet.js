@@ -1,5 +1,7 @@
 // Straßennetz: Knoten, Straßen, Höhenprofile, Geländeeinschnitt, A*-Verbindungen.
 import { SpatialHash, MinHeap, smoothstep, lerp, clamp, catmull, resample, simplify, polyLength } from '../util.js';
+import { flattenJunctions } from './junction.js';
+import { LU } from './landuse.js';
 
 export const ROAD_KINDS = {
   highway: { w: 13, speed: 34, lanes: 4, fall: 15, sw: 0, tex: 'hw' },
@@ -14,7 +16,12 @@ export const ROAD_KINDS = {
   taxiway: { w: 16, speed: 12, lanes: 1, fall: 8, sw: 0, tex: 'taxi', noTraffic: true },
   runway: { w: 46, speed: 0, lanes: 0, fall: 10, sw: 0, tex: 'runway', noTraffic: true },
   quay: { w: 10, speed: 8, lanes: 2, fall: 4, sw: 0, tex: 'quay' },
+  deck: { w: 6, speed: 8, lanes: 1, fall: 4, sw: 0, tex: 'deck', noTraffic: true },
+  forecourt: { w: 16, speed: 5, lanes: 1, fall: 7, sw: 0, tex: 'apron', noTraffic: true },   // Vorplatz von Tankstelle/Werkstatt
 };
+
+const CARVE_MAX = 48;
+const CARVE_W = new Float64Array(CARVE_MAX), CARVE_E = new Float64Array(CARVE_MAX), CARVE_Y = new Float64Array(CARVE_MAX);
 
 export class RoadNet {
   constructor(hf, coast) {
@@ -52,7 +59,7 @@ export class RoadNet {
     const road = {
       id: this.roads.length, kind, w: opts.w ?? k.w, speed: k.speed, lanes: k.lanes, sw: opts.sw ?? k.sw, fall: k.fall,
       pts: p, ys: null, cum: null, len: 0, a, b, name: opts.name || '', oneway: !!opts.oneway, noTraffic: !!k.noTraffic || !!opts.noTraffic,
-      urban: !!opts.urban, flat: !!opts.flat,
+      urban: !!opts.urban, flat: !!opts.flat, hidden: !!opts.hidden,
     };
     this.roads.push(road);
     na.roads.push(road.id);
@@ -90,10 +97,12 @@ export class RoadNet {
       n.y = Math.max(0.35, s / c);
     }
     for (const r of this.roads) this._profile(r);
+    flattenJunctions(this);
+    levelCrossings(this.roads);
     for (const r of this.roads) {
       for (let i = 0; i < r.pts.length - 1; i++) {
         const a = r.pts[i], b = r.pts[i + 1];
-        const m = (r.w * 0.5 + r.sw + r.fall) + 2;
+        const m = (r.w * 0.5 + r.sw + r.fall) + 4;
         const seg = { r, i };
         this.segHash.insert(seg, Math.min(a[0], b[0]) - m, Math.min(a[1], b[1]) - m, Math.max(a[0], b[0]) + m, Math.max(a[1], b[1]) + m);
       }
@@ -103,19 +112,19 @@ export class RoadNet {
   }
 
   // Nachträglich hinzugefügte Straße (nach finalize): bindet an das Höhenprofil einer bestehenden Straße an
-  addLate(kind, pts, { yB = null, hf = this.hf, name = '', noTraffic = false } = {}) {
+  addLate(kind, pts, { yB = null, hf = this.hf, name = '', noTraffic = false, w = null, flat = false, hidden = false } = {}) {
     const a = this.addNode(pts[0][0], pts[0][1], 0.5), b = this.addNode(pts[pts.length - 1][0], pts[pts.length - 1][1], 0.5);
     if (a === b) return null;
     const na = this.nodes[a], nb = this.nodes[b];
     na.y = Math.max(0.35, hf.h(na.x, na.z));
     nb.y = yB ?? Math.max(0.35, hf.h(nb.x, nb.z));
     const p = catmull(pts.map((q) => [q[0], q[1]]), 8, false, 0.5);
-    const r = this.addRoad(kind, p, a, b, { name, noTraffic });
+    const r = this.addRoad(kind, p, a, b, { name, noTraffic, w: w ?? undefined, flat, hidden });
     if (!r) return null;
     this._profile(r);
     for (let i = 0; i < r.pts.length - 1; i++) {
       const A = r.pts[i], B = r.pts[i + 1];
-      const m = (r.w * 0.5 + r.sw + r.fall) + 2;
+      const m = (r.w * 0.5 + r.sw + r.fall) + 4;
       this.segHash.insert({ r, i }, Math.min(A[0], B[0]) - m, Math.min(A[1], B[1]) - m, Math.max(A[0], B[0]) + m, Math.max(A[1], B[1]) + m);
     }
     return r;
@@ -154,20 +163,28 @@ export class RoadNet {
         const s = cum[i];
         ys[i] += d0 * Math.max(0, 1 - s / fade) + d1 * Math.max(0, 1 - (r.len - s) / fade);
       }
-      // Maximale Steigung begrenzen (ca. 11 %)
-      const maxS = r.kind === 'highway' ? 0.06 : 0.11;
-      for (let pass = 0; pass < 3; pass++) {
-        for (let i = 1; i < n; i++) { const ds = cum[i] - cum[i - 1]; ys[i] = clamp(ys[i], ys[i - 1] - maxS * ds, ys[i - 1] + maxS * ds); }
-        for (let i = n - 2; i >= 0; i--) { const ds = cum[i + 1] - cum[i]; ys[i] = clamp(ys[i], ys[i + 1] - maxS * ds, ys[i + 1] + maxS * ds); }
+      // Maximale Steigung begrenzen (ca. 11 %). Die Enden bleiben immer auf Knotenhöhe – sonst klafft an der Kreuzung
+      // eine Stufe; liegen die Knoten dafür zu weit auseinander, wird die Straße gleichmäßig steiler.
+      const maxS = Math.max(r.kind === 'highway' ? 0.06 : 0.11, (Math.abs(nb.y - na.y) / (r.len || 1)) * 1.15);
+      for (let i = 0; i < n; i++) {
+        const a = maxS * cum[i], b = maxS * (r.len - cum[i]);
+        ys[i] = clamp(ys[i], Math.max(na.y - a, nb.y - b), Math.min(na.y + a, nb.y + b));
       }
+      ys[0] = na.y; ys[n - 1] = nb.y;
+      for (let i = 1; i < n - 1; i++) { const ds = cum[i] - cum[i - 1]; ys[i] = clamp(ys[i], ys[i - 1] - maxS * ds, ys[i - 1] + maxS * ds); }
+      for (let i = n - 2; i > 0; i--) { const ds = cum[i + 1] - cum[i]; ys[i] = clamp(ys[i], ys[i + 1] - maxS * ds, ys[i + 1] + maxS * ds); }
     }
     for (let i = 0; i < n; i++) ys[i] = Math.max(ys[i], 0.35);
     r.ys = ys;
   }
 
   // Geländeeinschnitt: zieht die Höhe in Straßennähe auf das Straßenprofil
+  // Überlappen sich mehrere Straßen (Kreuzungen), zählt die, deren Fläche der Stelle am nächsten liegt – sonst
+  // würde das Gelände über einer Straße aus dem Mittel aller Arme liegen und durch den Belag ragen.
+  // In Städten (Bürgersteig) bleibt das Gelände außerdem ein Stück weiter flach: das Geländenetz hat 4 m Raster,
+  // sonst schauen Dreiecke am Bordsteinrand durch.
   carve(x, z, h) {
-    let wBest = 0, ySum = 0, wSum = 0;
+    let wBest = 0, emin = Infinity, n = 0;
     this.segHash.query(x - 1, z - 1, x + 1, z + 1, (seg) => {
       const r = seg.r, a = r.pts[seg.i], b = r.pts[seg.i + 1];
       const ex = b[0] - a[0], ez = b[1] - a[1];
@@ -176,15 +193,23 @@ export class RoadNet {
       t = t < 0 ? 0 : t > 1 ? 1 : t;
       const dx = x - (a[0] + ex * t), dz = z - (a[1] + ez * t);
       const d = Math.sqrt(dx * dx + dz * dz);
-      const flat = r.w * 0.5 + r.sw + 0.8;
-      if (d >= flat + r.fall) return;
+      const half = r.w * 0.5 + r.sw;
+      const flat = half + (r.sw > 0 ? 3.0 : 0.8);
+      if (d >= flat + r.fall || n >= CARVE_MAX) return;
       const w = 1 - smoothstep(flat, flat + r.fall, d);
-      const y = r.ys[seg.i] + (r.ys[seg.i + 1] - r.ys[seg.i]) * t;
+      const e = d - half;
       if (w > wBest) wBest = w;
-      ySum += y * w; wSum += w;
+      if (e < emin) emin = e;
+      CARVE_W[n] = w; CARVE_E[n] = e; CARVE_Y[n] = r.ys[seg.i] + (r.ys[seg.i + 1] - r.ys[seg.i]) * t;
+      n++;
     });
     if (wBest <= 0) return h;
-    const y = ySum / wSum;
+    let ySum = 0, wSum = 0;
+    for (let k = 0; k < n; k++) {
+      const ww = CARVE_W[k] * (1 - smoothstep(0, 1.2, CARVE_E[k] - emin));
+      ySum += CARVE_Y[k] * ww; wSum += ww;
+    }
+    const y = wSum > 1e-9 ? ySum / wSum : h;
     return h + (y - h) * wBest;
   }
 
@@ -228,6 +253,19 @@ export class RoadNet {
     return best;
   }
 
+  // Liegt (x,z) auf irgendeiner Straße (Fahrbahn, Bürgersteig, Holzbohlen), plus Sicherheitsabstand?
+  covers(x, z, margin = 0) {
+    let hit = false;
+    this.segHash.query(x - 1, z - 1, x + 1, z + 1, (seg) => {
+      if (hit) return;
+      const r = seg.r, a = r.pts[seg.i], b = r.pts[seg.i + 1];
+      const ex = b[0] - a[0], ez = b[1] - a[1];
+      const t = clamp(((x - a[0]) * ex + (z - a[1]) * ez) / (ex * ex + ez * ez || 1), 0, 1);
+      if (Math.hypot(x - a[0] - ex * t, z - a[1] - ez * t) < r.w * 0.5 + r.sw + margin) hit = true;
+    });
+    return hit;
+  }
+
   // Position/Richtung auf einer Straße bei Strecke s
   pointAt(r, s, out = {}) {
     const cum = r.cum, n = cum.length;
@@ -250,10 +288,42 @@ export class RoadNet {
   get totalLength() { return this.roads.reduce((s, r) => s + r.len, 0); }
 }
 
+// Kreuzen sich zwei Straßen ohne gemeinsamen Knoten, treffen sie sich dort auf gleicher Höhe – sonst verschwindet eine
+// im Boden. Die Höhe wird über 40 m eingeblendet; die Straßenenden (Knotenhöhen) bleiben unverändert.
+function levelCrossings(roads) {
+  const hash = new SpatialHash(48), found = [];
+  for (const r of roads) {
+    for (let i = 0; i < r.pts.length - 1; i++) {
+      const a = r.pts[i], b = r.pts[i + 1], ex = b[0] - a[0], ez = b[1] - a[1];
+      const box = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+      hash.query(...box, (o) => {
+        if (o.r === r) return;
+        const c = o.r.pts[o.i], d = o.r.pts[o.i + 1], fx = d[0] - c[0], fz = d[1] - c[1], den = ex * fz - ez * fx;
+        if (Math.abs(den) < 1e-6) return;
+        const t = ((c[0] - a[0]) * fz - (c[1] - a[1]) * fx) / den, u = ((c[0] - a[0]) * ez - (c[1] - a[1]) * ex) / den;
+        if (t >= 0 && t <= 1 && u >= 0 && u <= 1) found.push([{ r, i, t }, { r: o.r, i: o.i, t: u }]);
+      });
+      hash.insert({ r, i }, ...box);
+    }
+  }
+  const height = ({ r, i, t }) => r.ys[i] + (r.ys[i + 1] - r.ys[i]) * t;
+  for (const pair of found) {
+    const [ya, yb] = pair.map(height);
+    if (Math.abs(ya - yb) < 0.3) continue;
+    for (const c of pair) {
+      const r = c.r, at = r.cum[c.i] + (r.cum[c.i + 1] - r.cum[c.i]) * c.t, delta = (ya + yb) / 2 - height(c);
+      for (let k = 1; k < r.pts.length - 1; k++) {
+        const w = 1 - smoothstep(4, 40, Math.abs(r.cum[k] - at));
+        r.ys[k] += delta * w * Math.min(1, r.cum[k] / 15, (r.len - r.cum[k]) / 15);
+      }
+    }
+  }
+}
+
 // ---------- A*-Verbindungsstraßen ----------
 
 export function routeLinks(net, links, ctx) {
-  const { hf, coast, world, settlements, cell = 30 } = ctx;
+  const { hf, coast, world, settlements, landuse = null, cell = 30 } = ctx;
   const nx = Math.ceil((world.x1 - world.x0) / cell), nz = Math.ceil((world.z1 - world.z0) / cell);
   const N = nx * nz;
   const hg = new Float32Array(N).fill(NaN); // Basishöhen (lazy)
@@ -262,6 +332,15 @@ export function routeLinks(net, links, ctx) {
   const cz = (i) => world.z0 + (Math.floor(i / nx) + 0.5) * cell;
   const heightAt = (i) => (Number.isNaN(hg[i]) ? (hg[i] = hf.base(cx(i), cz(i))) : hg[i]);
   const sdAt = (i) => (Number.isNaN(sdg[i]) ? (sdg[i] = coast.sdAt(cx(i), cz(i))) : sdg[i]);
+  // Flughafengelände (auch angeschnittene Zellen): Verbindungsstraßen führen außen herum
+  const airg = new Int8Array(N).fill(-1);
+  const airAt = (i) => {
+    if (airg[i] < 0) {
+      airg[i] = 0;
+      if (landuse) for (const dx of [-0.5, 0, 0.5]) for (const dz of [-0.5, 0, 0.5]) { const u = landuse.get(cx(i) + dx * cell, cz(i) + dz * cell); if (u === LU.AIRPORT || u === LU.RUNWAY) airg[i] = 1; }
+    }
+    return airg[i] === 1;
+  };
   const used = new Uint8Array(N);
   const blockR = new Float32Array(N); // Zusatzkosten in Siedlungen
 
@@ -304,6 +383,7 @@ export function routeLinks(net, links, ctx) {
         if (slope > 0.42 && !isEnd) continue;
         let c = DIRS[k][2] * (1 + 38 * slope * slope + (slope > 0.25 ? 6 : 0));
         if (sd < 55) c *= 1.6;
+        if (!isEnd && airAt(nb)) c *= 40;
         if (scenic) c *= 1 + 0.01 * Math.max(0, sd - 110);
         if (used[nb]) c *= 0.5;
         const br = blockR[nb];
@@ -340,13 +420,13 @@ export function routeLinks(net, links, ctx) {
   for (const [a, b, kind] of links) {
     const A = byId.get(a), B = byId.get(b);
     if (!A || !B || !A.s.pos || !B.s.pos) continue;
-    const ga = pickGate(net, A.s, B.s.pos), gb = pickGate(net, B.s, A.s.pos);
+    const ga = pickGate(net, A.s, B.s.approach || B.s.pos), gb = pickGate(net, B.s, A.s.approach || A.s.pos);
     if (!ga || !gb) continue;
     const scenic = kind === 'scenic';
     const cells = route(cellOf(ga.x, ga.z), cellOf(gb.x, gb.z), scenic, A.idx, B.idx);
     if (!cells) { console.warn('Keine Route', a, b); continue; }
     for (const c of cells) used[c] = 1;
-    paths.push({ cells, kind, a: ga.id, b: gb.id, from: ga, to: gb });
+    paths.push({ cells, kind, a: ga.id, b: gb.id, from: ga, to: gb, towns: [a, b] });
   }
 
   // ---- Zellgraph vereinigen und in Ketten zerlegen ----

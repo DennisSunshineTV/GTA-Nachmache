@@ -330,6 +330,70 @@ function jetModel() {
   return { parts: [{ geo: toGeometry(f), mat: 'prop' }], collider: { box: [19, 18], h: 12 } };
 }
 
+// Leitpfosten (weiß, schwarzes Band mit Rückstrahler). Lokal +x zeigt zur Fahrbahn.
+function delineatorModel() {
+  const mb = new MeshBuilder();
+  const W = [0.93, 0.93, 0.9], K = [0.06, 0.06, 0.07];
+  mb.box(0, 0, 0, 0.1, 0.72, 0.12, 0, ...W);
+  mb.box(0, 0.72, 0, 0.1, 0.24, 0.12, 0, ...K);
+  mb.box(0, 0.96, 0, 0.1, 0.06, 0.12, 0, ...W);
+  // schräge Kappe
+  mb.quadAuto([-0.05, 1.02, -0.06], [-0.05, 1.02, 0.06], [0.05, 1.07, 0.06], [0.05, 1.07, -0.06], ...W);
+  mb.quadAuto([0.05, 1.02, -0.06], [0.05, 1.07, -0.06], [0.05, 1.07, 0.06], [0.05, 1.02, 0.06], ...W);
+  mb.triFace([-0.05, 1.02, 0.06], [0.05, 1.02, 0.06], [0.05, 1.07, 0.06], 0, 0, 1, ...W);
+  mb.triFace([-0.05, 1.02, -0.06], [0.05, 1.02, -0.06], [0.05, 1.07, -0.06], 0, 0, -1, ...W);
+  mb.box(0.052, 0.78, 0, 0.01, 0.12, 0.05, 0, 0.95, 0.62, 0.12);   // Rückstrahler
+  return { parts: [{ geo: toGeometry(mb), mat: 'prop' }], collider: null };
+}
+
+// Grasbüschel mit Wildblumen: drei gekreuzte Karten mit Alpha-Textur; Normalen nach oben (helle, gleichmäßige Beleuchtung)
+function grassTuftModel(v) {
+  const mb = new MeshBuilder();
+  const rnd = mulberry32(700 + v);
+  const W = [1.25, 1.0, 0.8][v], H = [0.62, 0.5, 0.85][v];
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI + rnd() * 0.4, c = Math.cos(a) * W / 2, s = Math.sin(a) * W / 2;
+    const ox = (rnd() - 0.5) * 0.25, oz = (rnd() - 0.5) * 0.25, t = 0.85 + rnd() * 0.25;
+    mb.quad([ox - c, 0, oz - s], [ox + c, 0, oz + s], [ox + c, H, oz + s], [ox - c, H, oz - s], 0, 1, 0, 0, 0, 1, 1, t, t, t * 0.95);
+  }
+  return { parts: [{ geo: toGeometry(mb), mat: 'grass' }], collider: null };
+}
+
+// Laubbaum (Platane/Linde): Stamm mit Ästen, Krone aus vielen Blattkarten; Normalen zeigen von der Kronenmitte weg
+function broadleafModel(v) {
+  const wood = new MeshBuilder(), leaves = new MeshBuilder();
+  const rnd = mulberry32(900 + v * 17);
+  const H = [7.5, 9.5, 6.2][v], R = [3.6, 4.4, 3.0][v];
+  const lean = (rnd() - 0.5) * 0.6;
+  tube(wood, [[0, 0, 0], [lean * 0.3, H * 0.3, 0.1], [lean * 0.6, H * 0.55, 0.15], [lean, H * 0.75, 0.2]], [0.32, 0.26, 0.2, 0.13], 7, [0.38, 0.33, 0.27], [0.34, 0.3, 0.25]);
+  const cy = H * 0.72 + R * 0.45, cx = lean, cz = 0.2;
+  for (let b = 0; b < 6; b++) {
+    const a = (b / 6) * Math.PI * 2 + rnd(), up = H * (0.45 + rnd() * 0.25);
+    const ex = cx + Math.cos(a) * R * 0.75, ez = cz + Math.sin(a) * R * 0.75, ey = cy + (rnd() - 0.3) * R * 0.6;
+    tube(wood, [[lean * 0.5, up, 0.12], [(lean * 0.5 + ex) / 2, (up + ey) / 2 + 0.4, (0.12 + ez) / 2], [ex, ey, ez]], [0.12, 0.08, 0.04], 5, [0.36, 0.31, 0.25]);
+  }
+  const N = [46, 58, 36][v];
+  for (let k = 0; k < N; k++) {
+    // Punkt im Kronen-Ellipsoid, außen dichter
+    const th = rnd() * Math.PI * 2, ph = Math.acos(2 * rnd() - 1), rr = Math.pow(rnd(), 0.4);
+    const nx = Math.sin(ph) * Math.cos(th), ny = Math.cos(ph), nz = Math.sin(ph) * Math.sin(th);
+    const px = cx + nx * R * rr, py = cy + ny * R * 0.78 * rr, pz = cz + nz * R * rr;
+    const S = 1.7 + rnd() * 1.3;
+    // zufällig orientierte Karte
+    const a = rnd() * Math.PI * 2, b = (rnd() - 0.5) * 1.4;
+    const ux = Math.cos(a), uz = Math.sin(a), vy = Math.cos(b), vh = Math.sin(b);
+    const U = [ux * S / 2, 0, uz * S / 2], V = [-uz * vh * S / 2, vy * S / 2, ux * vh * S / 2];
+    const p = (su, sv) => [px + U[0] * su + V[0] * sv, py + U[1] * su + V[1] * sv, pz + U[2] * su + V[2] * sv];
+    const tone = 0.78 + rnd() * 0.3, yel = rnd() * 0.12;
+    const i0 = leaves.n;
+    leaves.quad(p(-1, -1), p(1, -1), p(1, 1), p(-1, 1), 0, 1, 0, 0, 0, 1, 1, tone * (1 + yel), tone, tone * (0.9 - yel));
+    // Normalen nach außen (wie eine Kugel um die Krone), leicht nach oben gekippt
+    const ln = Math.hypot(nx, ny + 0.35, nz);
+    for (let q = i0; q < leaves.n; q++) { leaves.nor[q * 3] = nx / ln; leaves.nor[q * 3 + 1] = (ny + 0.35) / ln; leaves.nor[q * 3 + 2] = nz / ln; }
+  }
+  return { parts: [{ geo: toGeometry(wood), mat: 'prop' }, { geo: toGeometry(leaves), mat: 'leaf' }], collider: { r: 0.35, h: H } };
+}
+
 // Boote (statisch, Häfen): echte Rumpfformen aus den Fahrzeugmodellen. Bug zeigt nach +z
 function boatModel(kind) {
   const { body, glass } = boatPropParts(kind);
@@ -360,6 +424,9 @@ export const PROP_DEFS = {
   yacht: { make: () => [boatModel('yacht')], cap: 600, colors: [[1, 1, 1], [0.92, 0.92, 0.95], [0.85, 0.9, 1]] },
   sail: { make: () => [boatModel('sail')], cap: 600, colors: [[1, 1, 1], [0.92, 0.95, 1], [1, 0.95, 0.9]] },
   boat: { make: () => [boatModel('boat')], cap: 600, colors: [[1, 1, 1], [0.9, 0.6, 0.2], [0.2, 0.5, 0.8], [0.85, 0.85, 0.9]] },
+  delineator: { make: () => [delineatorModel()], cap: 6000, noShadow: true },
+  grasstuft: { make: () => [grassTuftModel(0), grassTuftModel(1), grassTuftModel(2)], cap: 60000, noShadow: true },
+  tree: { make: () => [broadleafModel(0), broadleafModel(1), broadleafModel(2)], cap: 6000 },
 };
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _c = new THREE.Color();
@@ -371,7 +438,7 @@ export class PropSystem {
     this.group = new THREE.Group();
     scene.add(this.group);
     this.lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 0.9, 0.6), fog: true });
-    this.matMap = { prop: mats.prop, propMetal: mats.propMetal, frond: mats.frond, lampHead: this.lampMat, glassFlat: mats.glassFlat };
+    this.matMap = { prop: mats.prop, propMetal: mats.propMetal, frond: mats.frond, lampHead: this.lampMat, glassFlat: mats.glassFlat, grass: mats.grassCard, leaf: mats.leaf };
     this.types = {};
     this.lampChunks = new Map(); this.lampsDirty = false;
     this.chunks = new Map();   // key -> { type: {mats: Float32Array, cols: Float32Array|null, n, models: [] } }
@@ -394,7 +461,7 @@ export class PropSystem {
             this.group.add(im);
             return im;
           };
-          entries.push({ variant: vi, part, near: mk(true), far: mk(false), cap, color: !!(part.color || def.colors) });
+          entries.push({ variant: vi, part, near: mk(!def.noShadow), far: mk(false), cap, color: !!(part.color || def.colors) });
         });
       });
       this.types[name] = { def, entries, variants: variants.length };

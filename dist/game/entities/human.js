@@ -28,8 +28,10 @@ export function randomOutfit(rng, kind = 'local') {
     case 'elder': o.hair = [0.75, 0.75, 0.75]; o.height = 0.9; o.shirt = p([[0.8, 0.78, 0.6], [0.6, 0.7, 0.8], [0.8, 0.75, 0.85]]); o.pants = p([[0.35, 0.3, 0.25], [0.5, 0.5, 0.55]]); o.hat = rng() < 0.3; o.hatColor = [0.85, 0.8, 0.6]; break;
     case 'vendor': o.shirt = p([[0.95, 0.9, 0.7], [0.3, 0.6, 0.3]]); o.hat = true; o.hatColor = [0.9, 0.8, 0.5]; break;
     case 'sailor': o.shirt = [0.95, 0.95, 0.95]; o.pants = [0.1, 0.18, 0.35]; o.hat = true; o.hatColor = [0.95, 0.95, 0.95]; break;
-    case 'player_jason': o.skin = SKIN[1]; o.hair = [0.14, 0.09, 0.06]; o.shirt = [0.1, 0.1, 0.12]; o.pants = [0.25, 0.3, 0.42]; o.sleeves = 0; o.hairStyle = 'short'; o.shoes = [0.9, 0.9, 0.9]; o.glasses = false; o.height = 1.04; o.build = 1.1; break;
-    case 'player_lucia': o.skin = SKIN[2]; o.hair = [0.08, 0.05, 0.04]; o.shirt = [0.9, 0.25, 0.4]; o.pants = [0.12, 0.13, 0.16]; o.sleeves = 0; o.hairStyle = 'long'; o.shoes = [0.1, 0.1, 0.1]; o.glasses = false; o.height = 0.96; o.build = 0.95; break;
+    // Mann (player_jason): schlank-athletisch, enges schwarzes Rundhals-Shirt, dunkelblaue Jeans (gerader Schnitt), weiße Sneaker, Kette mit Plättchen, Armband rechts, Smartwatch links, Handy in der rechten Hand
+    case 'player_jason': o.skin = [0.9, 0.72, 0.58]; o.hair = [0.09, 0.06, 0.045]; o.shirt = [0.06, 0.06, 0.07]; o.pants = [0.16, 0.25, 0.44]; o.sleeves = 0; o.hairStyle = 'quiff'; o.shoes = [0.95, 0.95, 0.94]; o.glasses = false; o.height = 1.07; o.build = 1.04; o.fit = true; o.jeans = 'straight'; o.sneakers = true; o.necklace = true; o.armband = true; o.watch = true; o.phone = true; break;
+    // Frau (player_lucia): schmal, enges schwarzes Shirt mit Bootsausschnitt, dunkelblaue Bootcut-Jeans, weiße Sneaker, Kette, Armband rechts, Handy in der rechten Hand, dunkles Haar hochgesteckt
+    case 'player_lucia': o.skin = [0.93, 0.76, 0.64]; o.hair = [0.07, 0.05, 0.05]; o.shirt = [0.06, 0.06, 0.07]; o.pants = [0.17, 0.26, 0.46]; o.sleeves = 0; o.hairStyle = 'updo'; o.shoes = [0.95, 0.95, 0.94]; o.glasses = false; o.height = 0.97; o.build = 0.93; o.fit = true; o.boatneck = true; o.jeans = 'bootcut'; o.sneakers = true; o.necklace = true; o.armband = true; o.phone = true; break;
     default: break;
   }
   return o;
@@ -53,14 +55,38 @@ function buildGeometry(o) {
   // Oberkörper: Bauch, Brust und Schultern als weiche Ellipsoide
   const sp = mk(BONE.spine);
   const torsoCol = o.bare ? skin : shirt;
-  b(sp, 0, 1.07, 0, 0.168 * S, 0.2, 0.1, torsoCol, 1);
-  b(sp, 0, 1.31, 0, 0.2 * S, 0.17, 0.12, torsoCol, 2);
-  b(sp, 0, 1.42, 0, 0.215 * S, 0.055, 0.095, torsoCol, 1);
+  const wAb = o.fit ? (o.female ? 0.136 : 0.15) : 0.168, wCh = o.fit ? (o.female ? 0.168 : 0.206) : 0.2, wSh = o.fit ? (o.female ? 0.19 : 0.228) : 0.215;
+  b(sp, 0, 1.07, 0, wAb * S, 0.2, o.fit ? 0.088 : 0.1, torsoCol, 1);
+  b(sp, 0, 1.31, 0, wCh * S, 0.17, o.fit ? 0.112 : 0.12, torsoCol, 2);
+  b(sp, 0, 1.42, 0, wSh * S, 0.055, 0.095, torsoCol, 1);
+  if (o.boatneck) {
+    // Bootsausschnitt: Schlüsselbeine und Schultern frei
+    b(sp, 0, 1.425, 0.09, 0.112, 0.03, 0.034, skin, 1);
+    b(sp, 0, 1.425, -0.09, 0.112, 0.03, 0.034, skin, 1);
+  } else if (o.fit) {
+    sp.cylinder(0, 1.455, 0, 0.068, 0.064, 0.04, 9, shirt[0] * 1.6, shirt[1] * 1.6, shirt[2] * 1.6);   // Kragen (Rundhals)
+  }
   if (o.female) { b(sp, -0.06 * S, 1.29, 0.075, 0.075, 0.07, 0.065, torsoCol, 1); b(sp, 0.06 * S, 1.29, 0.075, 0.075, 0.07, 0.065, torsoCol, 1); }
+  // Kette mit Plättchen (Silber): Ring um den Hals, V nach vorn, Anhänger
+  if (o.necklace) {
+    const sv = [0.82, 0.84, 0.88];
+    for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; sp.box(Math.sin(a) * 0.062, 1.468, Math.cos(a) * 0.062 + (Math.cos(a) > 0 ? 0.008 : 0), 0.009, 0.009, 0.009, 0, ...sv); }
+    for (const t of [0.25, 0.5, 0.75]) for (const sg of [-1, 1]) sp.box(sg * 0.058 * (1 - t), 1.465 - 0.1 * t, 0.082 + 0.03 * t + (o.boatneck ? 0.006 : 0), 0.011, 0.011, 0.011, 0, ...sv);
+    sp.box(0, 1.352, 0.123, 0.034, 0.034, 0.008, 0, 0.9, 0.91, 0.95);
+  }
   if (o.vest) sp.box(0, 1.2, 0, 0.42 * S, 0.36, 0.28, 0, 0.08, 0.09, 0.1);
   if (o.id === 'cop' || (!o.bare && shirt[0] < 0.2 && shirt[2] > 0.4)) sp.box(0.12 * S, 1.3, 0.115, 0.07, 0.07, 0.01, 0, 0.9, 0.8, 0.3); // Abzeichen
   // Gürtel
-  hips.box(0, 0.98, 0, 0.35 * S, 0.045, 0.2, 0, 0.1, 0.08, 0.07);
+  if (o.fit) {
+    // Jeans: Bund in Jeansfarbe, Knopf, Reißverschluss, Taschen
+    hips.box(0, 0.975, 0, 0.352 * S, 0.04, 0.2, 0, pants[0] * 1.15, pants[1] * 1.15, pants[2] * 1.15);
+    hips.box(0, 0.952, 0.118, 0.014, 0.075, 0.012, 0, ...dark(pants, 0.62));
+    hips.box(0, 0.975, 0.121, 0.02, 0.02, 0.01, 0, 0.85, 0.85, 0.88);
+    for (const sg of [-1, 1]) {
+      hips.box(sg * 0.105 * S, 0.945, 0.111, 0.07, 0.012, 0.012, 0, ...dark(pants, 0.62));
+      hips.box(sg * 0.105 * S, 0.865, -0.108, 0.09, 0.075, 0.012, 0, ...dark(pants, 0.78));
+    }
+  } else hips.box(0, 0.98, 0, 0.35 * S, 0.045, 0.2, 0, 0.1, 0.08, 0.07);
   // Kopf + Hals
   const hd = mk(BONE.head);
   hd.cylinder(0, 1.5, 0, 0.055, 0.05, 0.1, 8, ...skin);
@@ -70,8 +96,24 @@ function buildGeometry(o) {
   hd.box(0, 1.64, 0.118, 0.025, 0.04, 0.03, 0, ...dark(skin, 0.95));
   hd.box(0, 1.6, 0.11, 0.05, 0.012, 0.01, 0, 0.6, 0.25, 0.25);
   if (o.glasses) hd.box(0, 1.678, 0.118, 0.19, 0.04, 0.03, 0, 0.04, 0.04, 0.05);
+  if (o.fit) for (const sg of [-1, 1]) hd.box(sg * 0.042, 1.706, 0.108, 0.05, 0.011, 0.012, sg * 0.12, o.hair[0] * 1.1, o.hair[1] * 1.1, o.hair[2] * 1.1);
   // Haare
-  if (o.hairStyle !== 'bald') {
+  if (o.hairStyle === 'quiff') {
+    // Mann: Deckhaar mit Volumen, nach hinten gekämmte Stirnpartie, kurze Seiten
+    const hc = o.hair;
+    b(hd, 0, 1.725, -0.012, 0.114, 0.08, 0.124, hc);
+    b(hd, 0, 1.775, 0.025, 0.088, 0.05, 0.09, hc, 2);
+    b(hd, 0, 1.762, 0.088, 0.09, 0.028, 0.046, hc);
+    for (const sg of [-1, 1]) b(hd, sg * 0.102, 1.675, -0.012, 0.028, 0.075, 0.1, hc);
+    b(hd, 0, 1.655, -0.098, 0.106, 0.09, 0.05, hc);
+  } else if (o.hairStyle === 'updo') {
+    // Frau: Mittelscheitel, nach hinten gebunden zu einem hohen Dutt, lose Strähnen am Gesicht
+    const hc = o.hair;
+    b(hd, 0, 1.722, -0.012, 0.115, 0.078, 0.125, hc);
+    for (const sg of [-1, 1]) { b(hd, sg * 0.099, 1.678, 0.0, 0.03, 0.082, 0.105, hc); b(hd, sg * 0.093, 1.585, 0.055, 0.014, 0.088, 0.022, hc); }
+    b(hd, 0, 1.66, -0.1, 0.102, 0.092, 0.045, hc);
+    b(hd, 0, 1.795, -0.098, 0.064, 0.06, 0.064, hc, 2);
+  } else if (o.hairStyle !== 'bald') {
     b(hd, 0, 1.72, -0.01, 0.112, 0.085, 0.12, o.hair);
     if (o.hairStyle === 'long') { b(hd, 0, 1.6, -0.075, 0.125, 0.19, 0.085, o.hair); b(hd, 0, 1.45, -0.07, 0.1, 0.12, 0.06, o.hair); }
     else if (o.hairStyle === 'bob') b(hd, 0, 1.62, -0.06, 0.128, 0.1, 0.1, o.hair);
@@ -89,8 +131,19 @@ function buildGeometry(o) {
     ua.cylinder(sx, 1.18, 0, 0.056, 0.062, 0.27, 7, ...(o.sleeves ? sleeveCol : (o.bare ? skin : dark(shirt, 0.98))));
     if (!o.sleeves) ua.cylinder(sx, 1.18, 0, 0.056, 0.062, 0.11, 7, ...skin);
     blobBox(ua, sx, 1.425, 0, 0.06, 0.062, 0.06, torsoCol, 1);
+    if (o.armband && side < 0) {
+      // Schwarzes Stoffband mit Knoten am unteren Oberarm
+      ua.cylinder(sx, 1.2, 0, 0.064, 0.067, 0.055, 9, 0.035, 0.035, 0.04);
+      blobBox(ua, sx - 0.07, 1.235, 0.01, 0.026, 0.042, 0.032, [0.035, 0.035, 0.04], 0);
+      blobBox(ua, sx - 0.06, 1.2, -0.03, 0.02, 0.04, 0.025, [0.035, 0.035, 0.04], 0);
+    }
     fa.cylinder(sx, 0.9, 0, 0.042, 0.052, 0.27, 7, ...(o.sleeves ? sleeveCol : skin));
     blobBox(fa, sx, 0.88, 0.0, 0.05, 0.055, 0.05, skin, 0);
+    if (o.watch && side > 0) {
+      fa.cylinder(sx, 0.915, 0, 0.05, 0.05, 0.04, 9, 0.04, 0.04, 0.045);
+      fa.box(sx + 0.046, 0.915, 0, 0.02, 0.042, 0.04, 0, 0.05, 0.06, 0.08);
+      fa.box(sx + 0.058, 0.922, 0, 0.004, 0.028, 0.028, 0, 0.18, 0.3, 0.45);
+    }
   }
   // Beine
   for (const side of [1, -1]) {
@@ -99,9 +152,23 @@ function buildGeometry(o) {
     const thCol = o.shorts ? (o.bare ? pants : pants) : pants;
     th.cylinder(lx, 0.5, 0, 0.072, 0.092, 0.45, 8, ...thCol);
     blobBox(th, lx, 0.5, 0, 0.075, 0.075, 0.075, thCol, 0);
-    sh.cylinder(lx, 0.09, 0, 0.05, 0.068, 0.42, 8, ...(o.shorts ? skin : pants));
-    sh.box(lx, 0.0, 0.05, 0.105, 0.085, 0.27, 0, ...o.shoes);
-    sh.box(lx, 0.075, -0.0, 0.1, 0.03, 0.2, 0, ...dark(o.shoes, 1.1));
+    if (o.jeans) {
+      // Hosenbein reicht bis auf den Schuh; Bootcut weitet sich zum Saum
+      const hem = o.jeans === 'bootcut' ? 0.082 : 0.06;
+      sh.cylinder(lx, 0.04, 0, hem, 0.068, 0.47, 9, ...pants);
+      sh.cylinder(lx, 0.04, 0, hem * 1.012, hem * 1.012, 0.014, 9, ...dark(pants, 0.7));
+    } else sh.cylinder(lx, 0.09, 0, 0.05, 0.068, 0.42, 8, ...(o.shorts ? skin : pants));
+    if (o.sneakers) {
+      const w = [0.96, 0.96, 0.95];
+      sh.box(lx, 0.0, 0.065, 0.112, 0.03, 0.3, 0, 0.9, 0.9, 0.88);                       // Sohle
+      sh.box(lx, 0.03, 0.055, 0.102, 0.052, 0.27, 0, ...w);                              // Schaft
+      blobBox(sh, lx, 0.058, 0.17, 0.052, 0.036, 0.055, w, 1);                            // Kappe
+      sh.box(lx, 0.082, 0.04, 0.056, 0.012, 0.1, 0, 0.82, 0.82, 0.85);                    // Schnürung
+      sh.box(lx, 0.05, -0.085, 0.07, 0.04, 0.02, 0, 0.8, 0.8, 0.82);                      // Fersenlasche
+    } else {
+      sh.box(lx, 0.0, 0.05, 0.105, 0.085, 0.27, 0, ...o.shoes);
+      sh.box(lx, 0.075, -0.0, 0.1, 0.03, 0.2, 0, ...dark(o.shoes, 1.1));
+    }
   }
 
   // Zusammenführen mit Skin-Daten
@@ -189,11 +256,23 @@ export class Human {
     this.mesh.frustumCulled = false;
     this.mesh.castShadow = true; this.mesh.receiveShadow = true;
     this.group = new THREE.Group();
+    this.group.rotation.order = 'YXZ';   // erst kippen, dann in Blickrichtung drehen (Liegen auf dem Rücken, Schwimmen, Umfallen)
     this.group.add(this.mesh);
     // Waffen-Haltepunkt (rechte Hand)
     this.hand = new THREE.Group();
     this.hand.position.set(0, -0.27, 0.02);
     B.foreR.add(this.hand);
+    if (outfit.phone) {
+      const ph = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.146, 0.011), new THREE.MeshStandardMaterial({ color: 0x0c0d12, roughness: 0.3, metalness: 0.6 }));
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.062, 0.136), new THREE.MeshStandardMaterial({ color: 0x1a2a44, roughness: 0.15, metalness: 0.2, emissive: 0x16263f, emissiveIntensity: 0.5 }));
+      screen.position.z = -0.0058; screen.rotation.y = Math.PI;
+      ph.add(body, screen);
+      ph.position.set(0.012, -0.29 * (outfit.height || 1), 0.05);
+      ph.rotation.x = -0.28;
+      B.foreR.add(ph);
+      this.phoneMesh = ph;
+    }
     this.phase = Math.random() * 6;
     this.lastSpeed = 0;
     this.stateT = 0;
@@ -209,6 +288,7 @@ export class Human {
   // st: { speed, aim, aimPitch, sit, driving, dead, swim, dance, punch, phone, lie, wheel(-1..1), crouch, throw }
   update(dt, st) {
     const B = this.B;
+    if (this.phoneMesh) this.phoneMesh.visible = (this.hand.children.length === 0 || !!st.phone) && !st.driving && !st.dead && !st.swim && !st.lie;
     const spd = st.speed || 0;
     const targetPhase = spd * dt * (spd > 3.2 ? 1.45 : 2.2);
     this.phase += targetPhase;
@@ -258,12 +338,36 @@ export class Human {
       return;
     }
     if (st.swim) {
-      const t = this.stateT * 4.5;
-      this.group.rotation.x = 1.1;
-      this.mesh.position.set(0, -0.05, 0);
-      B.armL.rotation.x = Math.sin(t) * 2.6 - 1.4; B.armR.rotation.x = Math.sin(t + Math.PI) * 2.6 - 1.4;
-      B.legL.rotation.x = Math.sin(t * 2) * 0.5; B.legR.rotation.x = Math.sin(t * 2 + Math.PI) * 0.5;
-      B.head.rotation.x = -0.9;
+      // Bewegung 0..1 weich überblenden (Stand: Wassertreten, schwimmen: Kraulen, getaucht: Brustschwimmen)
+      const mv = clamp(spd / 2.6, 0, 1);
+      this.swimMv = (this.swimMv ?? mv) + (mv - (this.swimMv ?? mv)) * Math.min(1, dt * 4);
+      const m = this.swimMv, t = this.stateT;
+      if (st.dive) {
+        const c = t * 2.4, k = Math.sin(c), pull = Math.max(0, k);
+        this.group.rotation.x = 1.35 + st.diveDir * 0.35;
+        this.mesh.position.set(0, -0.1, 0);
+        B.armL.rotation.x = -2.9 + pull * 1.9; B.armR.rotation.x = -2.9 + pull * 1.9;
+        B.armL.rotation.z = -0.25 - pull * 0.9; B.armR.rotation.z = 0.25 + pull * 0.9;
+        B.foreL.rotation.x = -0.2 - pull * 0.5; B.foreR.rotation.x = -0.2 - pull * 0.5;
+        const kick = Math.max(0, Math.sin(c + 1.4));
+        B.legL.rotation.x = 0.1 + kick * 0.35; B.legR.rotation.x = 0.1 + kick * 0.35; B.legL.rotation.z = -0.25 * kick; B.legR.rotation.z = 0.25 * kick;
+        B.shinL.rotation.x = 1.4 * (1 - kick); B.shinR.rotation.x = 1.4 * (1 - kick);
+        B.head.rotation.x = -0.75;
+        return;
+      }
+      const tr = t * 2.6, cr = t * (3.2 + m * 2.2);
+      this.group.rotation.x = 0.22 + m * 1.0 + Math.sin(tr * 2) * 0.03 * (1 - m);
+      this.mesh.position.set(0, -0.05 + Math.sin(tr * 2) * 0.04 * (1 - m), 0);
+      // Wassertreten: Arme kreisen seitlich, Beine radeln
+      const aTx = -0.5 + Math.cos(tr) * 0.3, aTz = 0.95 + Math.sin(tr) * 0.25;
+      // Kraulen: Arme abwechselnd über Kopf, Beine flattern
+      const aCl = Math.sin(cr) * 2.6 - 1.4, aCr = Math.sin(cr + Math.PI) * 2.6 - 1.4;
+      B.armL.rotation.x = aTx * (1 - m) + aCl * m; B.armR.rotation.x = (-0.5 + Math.cos(tr + Math.PI) * 0.3) * (1 - m) + aCr * m;
+      B.armL.rotation.z = -aTz * (1 - m) - 0.15 * m; B.armR.rotation.z = aTz * (1 - m) + 0.15 * m;
+      B.foreL.rotation.x = -0.6 * (1 - m); B.foreR.rotation.x = -0.6 * (1 - m);
+      B.legL.rotation.x = Math.sin(tr) * 0.55 * (1 - m) + Math.sin(cr * 2) * 0.45 * m; B.legR.rotation.x = Math.sin(tr + Math.PI) * 0.55 * (1 - m) + Math.sin(cr * 2 + Math.PI) * 0.45 * m;
+      B.shinL.rotation.x = (0.7 + Math.sin(tr) * 0.4) * (1 - m) + 0.15 * m; B.shinR.rotation.x = (0.7 + Math.sin(tr + Math.PI) * 0.4) * (1 - m) + 0.15 * m;
+      B.head.rotation.x = -0.2 * (1 - m) - 0.95 * m;
       return;
     }
     if (st.dance) {
@@ -276,6 +380,17 @@ export class Human {
       return;
     }
 
+    if (st.climb !== null && st.climb !== undefined) {
+      // Arme greifen nach oben und drücken sich ab, Beine werden angezogen
+      const k = st.climb, up = Math.sin(Math.PI * Math.min(1, k * 1.15));
+      B.armL.rotation.x = B.armR.rotation.x = -2.7 + k * 2.2;
+      B.foreL.rotation.x = B.foreR.rotation.x = -0.25 - up * 0.7;
+      B.legL.rotation.x = -1.35 * up; B.shinL.rotation.x = 1.5 * up;
+      B.legR.rotation.x = -0.75 * up; B.shinR.rotation.x = 1.1 * up;
+      B.spine.rotation.x = 0.45 * up;
+      this.hand.visible = false;
+      return;
+    }
     // Gehen / Rennen / Stehen
     const run = clamp((spd - 1.2) / 4.5, 0, 1.2);
     const amp = clamp(spd / 2.2, 0, 1) * (0.5 + run * 0.62);
@@ -309,12 +424,44 @@ export class Human {
     } else if (st.holding) {
       B.armR.rotation.set(-0.5, 0, 0.1); B.foreR.rotation.set(-0.9, 0, 0);
     }
-    if (st.phone) { B.armR.rotation.set(-2.2, 0, 0.3); B.foreR.rotation.set(-1.6, 0, 0); B.head.rotation.x = 0.1; }
+    if (st.phone) { B.armR.rotation.set(-2.1, 0, 0.6); B.foreR.rotation.set(-2.1, 0, 0); B.head.rotation.set(0.05, -0.18, -0.3); }
+    if (this.phoneMesh) {
+      // am Ohr: Bildschirm zum Kopf; sonst locker in der Hand
+      const h = this.outfit.height || 1;
+      if (st.phone) { this.phoneMesh.position.set(0.04, -0.37 * h, 0.02); this.phoneMesh.rotation.set(-0.12, -Math.PI / 2, 0); }
+      else { this.phoneMesh.position.set(0.012, -0.29 * h, 0.05); this.phoneMesh.rotation.set(-0.28, 0, 0); }
+    }
+    this.hand.visible = !st.phone;   // Waffe beim Telefonieren ausblenden
     if (st.punch > 0) {
       const k = st.punch; // 1 → 0
       const sw = Math.sin((1 - k) * Math.PI);
-      B.armR.rotation.set(-1.5 * sw - 0.2, 0.2, 0); B.foreR.rotation.set(-0.2 - 0.4 * (1 - sw), 0, 0);
-      B.spine.rotation.y = -0.45 * sw;
+      const pow = st.heavy ? 1.35 : 1;   // schwerer Schlag holt weiter aus
+      B.armR.rotation.set(-1.5 * sw * pow - 0.2, 0.2, 0); B.foreR.rotation.set(-0.2 - 0.4 * (1 - sw), 0, 0);
+      B.spine.rotation.y = -0.45 * sw * pow * pow;
+      if (st.heavy) B.spine.rotation.x += 0.2 * sw;
+    }
+    if (st.kick > 0) {
+      const sw = Math.sin((1 - st.kick) * Math.PI);
+      B.legR.rotation.x = -(st.heavy ? 1.75 : 1.3) * sw; B.shinR.rotation.x = 0.9 * sw * (1 - sw);
+      B.spine.rotation.x = -0.28 * sw;
+      B.armL.rotation.z = -0.08 - 0.8 * sw; B.armR.rotation.z = 0.08 + 0.7 * sw;
+    }
+    if (st.windup > 0) {
+      // angekündigter Schlag: Arm weit nach hinten
+      B.armR.rotation.set(0.75, 0, 0.4); B.foreR.rotation.set(-1.7, 0, 0);
+      B.spine.rotation.y = 0.45;
+    }
+    if (st.block) {
+      // Deckung: beide Fäuste vors Gesicht
+      B.armR.rotation.set(-1.25, 0.4, 0.15); B.foreR.rotation.set(-1.9, 0, 0);
+      B.armL.rotation.set(-1.25, -0.4, -0.15); B.foreL.rotation.set(-1.9, 0, 0);
+      B.spine.rotation.x += 0.14; B.head.rotation.x = 0.18;
+    }
+    if (st.dodge > 0) {
+      const sw = Math.sin(Math.PI * Math.min(1, st.dodge / 0.4));
+      B.spine.rotation.z = (st.dodgeSide || 1) * 0.5 * sw; B.spine.rotation.x -= 0.2 * sw;
+      B.hips.position.y -= 0.16 * sw;
+      B.legL.rotation.z = -0.25 * sw; B.legR.rotation.z = 0.25 * sw;
     }
     if (st.throw > 0) {
       const k = st.throw; const sw = Math.sin((1 - k) * Math.PI);
